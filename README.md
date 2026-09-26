@@ -21,7 +21,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to explore the application.
+Open [https://aurelia-gamma-one.vercel.app/) with your browser to explore the application.
 
 ## Quality & Testing
 
