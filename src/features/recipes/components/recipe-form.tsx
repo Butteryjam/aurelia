@@ -31,6 +31,11 @@ import {
   readSavedDraft,
   type RecipeFormData,
 } from '@/features/recipes/utils/draft-store'
+import {
+  isIngredientRowEmpty,
+  isInstructionRowEmpty,
+  pruneEmptyFormRows,
+} from '@/features/recipes/utils/form-helpers'
 
 export type { RecipeFormData }
 
@@ -423,29 +428,56 @@ export function RecipeForm({ initialData, mode = 'create' }: RecipeFormProps) {
       return
     }
 
-    // Filter out blank ingredients
-    const validIngredients = formData.ingredients
-      .filter((ing) => ing.name.trim().length > 0)
-      .map((ing, idx) => ({
-        ...ing,
-        name: ing.name.trim(),
-        quantity: ing.quantity.trim() || null,
-        unit: ing.unit.trim() || null,
-        preparationNote: ing.preparationNote.trim() || null,
-        orderIndex: idx,
-      }))
+    // 1. Prune genuinely empty / untouched rows before validation/submission
+    const { ingredients: prunedIngredients, instructions: prunedInstructions } = pruneEmptyFormRows({
+      ingredients: formData.ingredients,
+      instructions: formData.instructions,
+    })
 
-    // Filter out blank instructions
-    const validInstructions = formData.instructions
-      .filter((ins) => ins.instruction.trim().length > 0)
-      .map((ins, idx) => ({
-        stepNumber: idx + 1,
-        instruction: ins.instruction.trim(),
-        timerDuration:
-          typeof ins.timerDuration === 'number' && ins.timerDuration > 0
-            ? ins.timerDuration * 60 // convert minutes to seconds
-            : null,
+    // 2. Validate partially completed ingredients (preserve user input; never silently discard)
+    const partiallyCompletedIng = prunedIngredients.find((ing) => !ing.name.trim())
+    if (partiallyCompletedIng) {
+      setError('Please provide a name for all ingredients.')
+      return
+    }
+
+    // 3. Validate partially completed instructions (preserve user input; never silently discard)
+    const partiallyCompletedIns = prunedInstructions.find((ins) => !ins.instruction.trim())
+    if (partiallyCompletedIns) {
+      setError('Please provide instructions for all steps.')
+      return
+    }
+
+    // Update form state if any untouched rows were pruned so the UI reflects the change
+    if (
+      prunedIngredients.length !== formData.ingredients.length ||
+      prunedInstructions.length !== formData.instructions.length
+    ) {
+      setFormData((prev) => ({
+        ...prev,
+        ingredients: prunedIngredients,
+        instructions: prunedInstructions,
       }))
+    }
+
+    // 4. Map valid ingredients and instructions for the payload
+    const validIngredients = prunedIngredients.map((ing, idx) => ({
+      ...ing,
+      name: ing.name.trim(),
+      quantity: ing.quantity.trim() || null,
+      unit: ing.unit.trim() || null,
+      preparationNote: ing.preparationNote.trim() || null,
+      orderIndex: idx,
+    }))
+
+    const validInstructions = prunedInstructions.map((ins, idx) => ({
+      stepNumber: idx + 1,
+      instruction: ins.instruction.trim(),
+      timerDuration:
+        typeof ins.timerDuration === 'number' && ins.timerDuration > 0
+          ? ins.timerDuration * 60 // convert minutes to seconds
+          : null,
+    }))
 
     const payload = {
       title: formData.title.trim(),
@@ -842,7 +874,7 @@ export function RecipeForm({ initialData, mode = 'create' }: RecipeFormProps) {
                 value={ing.name}
                 onChange={(e) => updateIngredient(idx, { name: e.target.value })}
                 className="w-full sm:flex-1 text-sm h-9 font-medium"
-                required
+                required={!isIngredientRowEmpty(ing)}
               />
 
               {/* Prep note */}
@@ -948,7 +980,7 @@ export function RecipeForm({ initialData, mode = 'create' }: RecipeFormProps) {
                   rows={3}
                   value={ins.instruction}
                   onChange={(e) => updateInstruction(idx, { instruction: e.target.value })}
-                  required
+                  required={!isInstructionRowEmpty(ins)}
                 />
 
                 <div className="flex items-center justify-between">

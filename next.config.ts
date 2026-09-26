@@ -45,6 +45,15 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns,
   },
+  async redirects() {
+    return [
+      {
+        source: '/favorites',
+        destination: '/recipes?favorite=true',
+        permanent: false,
+      },
+    ]
+  },
 }
 
 export default nextConfig
