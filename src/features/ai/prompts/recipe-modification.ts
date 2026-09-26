@@ -15,7 +15,48 @@ CRITICAL RULES FOR MODIFICATION:
 6. ADJUST INSTRUCTIONS: If an ingredient or technique changes, update the corresponding instruction steps so the recipe is foolproof to execute.
 7. TIMERS: Keep or adjust instruction timer durations (in minutes) accurately.
 
-Output strictly a valid JSON object matching the modifiedRecipeResultSchema.`
+REQUIRED JSON OUTPUT FORMAT:
+You MUST return a valid JSON object matching this exact structure:
+{
+  "recipe": {
+    "title": "string",
+    "description": "string or null",
+    "prepTime": "number or null",
+    "cookTime": "number or null",
+    "servings": "number",
+    "difficulty": "easy | medium | hard",
+    "cuisine": "string or null",
+    "category": "string or null",
+    "tags": ["string"],
+    "notes": "string or null",
+    "ingredients": [
+      {
+        "name": "string",
+        "quantity": "string or null",
+        "unit": "string or null",
+        "preparationNote": "string or null",
+        "isOptional": false
+      }
+    ],
+    "instructions": [
+      {
+        "stepNumber": 1,
+        "instruction": "string",
+        "timerDuration": "number or null"
+      }
+    ]
+  },
+  "summaryOfChanges": "string",
+  "culinaryNotes": "string or null"
+}
+
+STRICT SCHEMA RULES:
+- "recipe" MUST be present.
+- ingredients MUST be objects, never strings.
+- instructions MUST be objects, never strings.
+- culinaryNotes MUST be a string or null.
+- output JSON only.
+- do not add unrelated top-level fields.`
 
 export function buildRecipeModificationUserPrompt(params: {
   recipeTitle: string
