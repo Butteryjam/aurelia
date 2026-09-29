@@ -58,7 +58,7 @@ export function FavoriteButton({
   }
 
   const btnSizes = {
-    sm: 'h-7 w-7',
+    sm: 'h-8 w-8',
     md: 'h-9 w-9',
     lg: 'h-10 w-10',
   }
@@ -68,9 +68,10 @@ export function FavoriteButton({
       type="button"
       onClick={handleToggle}
       aria-label={isFav ? 'Remove from favorites' : 'Add to favorites'}
+      aria-pressed={isFav}
       className={cn(
         'relative inline-flex items-center justify-center rounded-full transition-all duration-200 active:scale-90',
-        'bg-background/80 backdrop-blur-xs border border-border/40 shadow-xs hover:bg-background',
+        'bg-background/85 dark:bg-card/85 backdrop-blur-md border border-border/50 shadow-xs hover:bg-background dark:hover:bg-card',
         'after:absolute after:-inset-2 after:content-[\'\']',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
         isFav ? 'text-rose-500 hover:text-rose-600' : 'text-muted-foreground hover:text-foreground',

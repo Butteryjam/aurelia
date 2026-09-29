@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react'
 import { AlertCircle, RotateCcw, RefreshCw } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 
 interface GlobalErrorProps {
   error: Error & { digest?: string }
@@ -17,49 +16,154 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
 
   return (
     <html lang="en">
-      <body className="min-h-dvh bg-neutral-950 text-neutral-100 font-sans antialiased flex items-center justify-center p-4">
-        <div className="mx-auto max-w-md w-full space-y-6 text-center">
+      <head>
+        <title>Application Error | Aurelia</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </head>
+      <body
+        style={{
+          margin: 0,
+          padding: '1rem',
+          minHeight: '100dvh',
+          backgroundColor: '#161311',
+          color: '#f6f4f1',
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxSizing: 'border-box',
+        }}
+      >
+        <div
+          style={{
+            maxWidth: '28rem',
+            width: '100%',
+            textAlign: 'center',
+            padding: '2rem 1.5rem',
+            backgroundColor: '#1f1a17',
+            borderRadius: '1rem',
+            border: '1px solid #332b26',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
+          }}
+        >
           {/* Warning Icon Badge */}
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-red-500/10 text-red-500 ring-8 ring-red-500/5">
-            <AlertCircle className="h-10 w-10" />
+          <div
+            style={{
+              width: '4.5rem',
+              height: '4.5rem',
+              borderRadius: '1rem',
+              backgroundColor: 'rgba(217, 75, 42, 0.12)',
+              border: '1px solid rgba(217, 75, 42, 0.25)',
+              color: '#e05838',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 1.5rem',
+            }}
+          >
+            <AlertCircle style={{ width: '2.25rem', height: '2.25rem' }} />
           </div>
 
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-widest text-red-400">
+          <div style={{ marginBottom: '1.75rem' }}>
+            <p
+              style={{
+                fontSize: '0.6875rem',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.1em',
+                color: '#e05838',
+                margin: '0 0 0.5rem',
+              }}
+            >
               Application Error
             </p>
-            <h1 className="font-serif text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            <h1
+              style={{
+                fontSize: '1.75rem',
+                fontWeight: 700,
+                lineHeight: 1.25,
+                margin: '0 0 0.75rem',
+                color: '#f6f4f1',
+                fontFamily: 'Georgia, Cambria, "Times New Roman", Times, serif',
+              }}
+            >
               A mishap in the kitchen
             </h1>
-            <p className="text-sm text-neutral-400 leading-relaxed">
-              Aurelia encountered a critical issue while rendering the application shell.
+            <p
+              style={{
+                fontSize: '0.875rem',
+                lineHeight: 1.6,
+                color: '#a89f91',
+                margin: 0,
+              }}
+            >
+              Aurelia encountered an unexpected issue while rendering the application shell.
               Your recipes, meal plans, and culinary notes remain safely stored.
             </p>
           </div>
 
           {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-            <Button
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              gap: '0.75rem',
+              justifyContent: 'center',
+            }}
+          >
+            <button
+              type="button"
               onClick={() => reset()}
-              variant="default"
-              className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white border-none"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                minHeight: '44px',
+                padding: '0 1.25rem',
+                backgroundColor: '#b85d36',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '0.75rem',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'background-color 0.15s ease',
+              }}
             >
-              <RotateCcw className="mr-2 h-4 w-4" />
-              Try Again
-            </Button>
+              <RotateCcw style={{ width: '1rem', height: '1rem' }} />
+              <span>Try Again</span>
+            </button>
 
-            <Button
+            <button
+              type="button"
               onClick={() => {
                 if (typeof window !== 'undefined') {
                   window.location.reload()
                 }
               }}
-              variant="outline"
-              className="w-full sm:w-auto border-neutral-700 bg-neutral-900 text-neutral-200 hover:bg-neutral-800 hover:text-white"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                minHeight: '44px',
+                padding: '0 1.25rem',
+                backgroundColor: '#29221e',
+                color: '#f6f4f1',
+                border: '1px solid #3d332c',
+                borderRadius: '0.75rem',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'background-color 0.15s ease',
+              }}
             >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Reload Application
-            </Button>
+              <RefreshCw style={{ width: '1rem', height: '1rem' }} />
+              <span>Reload App</span>
+            </button>
           </div>
         </div>
       </body>

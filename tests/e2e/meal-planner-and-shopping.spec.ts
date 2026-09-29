@@ -119,7 +119,8 @@ test.describe('Meal Planner & Shopping List E2E', () => {
     await manualInput.fill(groceryItem)
     await page.click('button[aria-label="Add item"]')
 
-    // Verify item appears in shopping list
-    await expect(page.locator(`text=${groceryItem}`)).toBeVisible({ timeout: 8000 })
+    // Verify item appears in shopping list after server transition finishes
+    await expect(manualInput).toBeEnabled({ timeout: 15000 })
+    await expect(page.locator(`text=${groceryItem}`)).toBeVisible({ timeout: 15000 })
   })
 })

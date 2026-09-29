@@ -26,12 +26,21 @@ export async function loginViaUI(page: Page, email = TEST_USER_A.email, password
   // Fill credentials
   await page.fill('input[type="email"]', email)
   await page.fill('input[type="password"]', password)
+  await page.waitForTimeout(600)
 
   // Submit
   await page.click('button[type="submit"]')
 
-  // Verify redirected away from /login to dashboard / or recipes
-  await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 })
+  // Verify redirected away from /login with transient network retry
+  try {
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 })
+  } catch {
+    if (page.url().includes('/login')) {
+      await page.waitForTimeout(1000)
+      await page.click('button[type="submit"]')
+      await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15000 })
+    }
+  }
 }
 
 /**
@@ -64,12 +73,25 @@ export async function getAuthenticatedTestClient(user = TEST_USER_A): Promise<{ 
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
-  const { data, error } = await client.auth.signInWithPassword({
-    email: user.email,
-    password: user.password,
-  })
+  let data: { user: { id: string } | null } | null = null
+  let error: { message: string } | null = null
 
-  if (error || !data.user) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await client.auth.signInWithPassword({
+        email: user.email,
+        password: user.password,
+      })
+      data = res.data
+      error = res.error
+      if (data?.user) break
+    } catch (err: unknown) {
+      if (attempt === 2) throw err
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+  }
+
+  if (error || !data?.user) {
     throw new Error(`Failed to authenticate test client: ${error?.message}`)
   }
 

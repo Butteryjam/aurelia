@@ -35,8 +35,13 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/signup') ||
     request.nextUrl.pathname.startsWith('/forgot-password')
 
+  const isRecoveryRoute =
+    request.nextUrl.pathname === '/settings' &&
+    request.nextUrl.searchParams.get('mode') === 'recovery'
+
   const isPublicRoute =
     isAuthRoute ||
+    isRecoveryRoute ||
     request.nextUrl.pathname.startsWith('/auth/callback') ||
     request.nextUrl.pathname === '/auth/confirm'
 

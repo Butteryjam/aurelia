@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 /**
  * Requests and maintains a Screen Wake Lock while the component is mounted.
@@ -11,6 +11,7 @@ import { useEffect, useRef } from 'react'
  * (e.g. after switching tabs).
  */
 export function useWakeLock() {
+  const [isLocked, setIsLocked] = useState(false)
   const sentinelRef = useRef<WakeLockSentinel | null>(null)
 
   useEffect(() => {
@@ -24,18 +25,25 @@ export function useWakeLock() {
     async function acquire() {
       if (released) return
       try {
-        sentinelRef.current = await (navigator as Navigator & { wakeLock: { request: (type: string) => Promise<WakeLockSentinel> } }).wakeLock.request('screen')
+        sentinelRef.current = await (navigator as Navigator & {
+          wakeLock: { request: (type: string) => Promise<WakeLockSentinel> }
+        }).wakeLock.request('screen')
+        setIsLocked(true)
         sentinelRef.current.addEventListener('release', () => {
           sentinelRef.current = null
+          setIsLocked(false)
         })
       } catch {
         // Denied or unsupported — no-op, Cook Mode still works normally
+        setIsLocked(false)
       }
     }
 
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible') {
         acquire()
+      } else {
+        setIsLocked(false)
       }
     }
 
@@ -46,6 +54,9 @@ export function useWakeLock() {
       released = true
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       sentinelRef.current?.release().catch(() => {})
+      setIsLocked(false)
     }
   }, [])
+
+  return { isLocked }
 }

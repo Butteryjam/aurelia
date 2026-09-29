@@ -110,16 +110,16 @@ export function PasswordUpdateForm({ isRecovery = false, userEmail }: PasswordUp
             disabled={isPending || success}
             required
             autoComplete="new-password"
-            className="pr-10"
+            className="pr-10 min-h-[44px] rounded-xl"
           />
-          <KeyRound className="pointer-events-none absolute right-3 top-2.5 h-4 w-4 text-muted-foreground/60" />
+          <KeyRound className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-muted-foreground/60" />
         </div>
       </div>
 
       <div className="space-y-1.5">
         <label
           htmlFor="confirm-password"
-          className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+          className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
         >
           Confirm New Password
         </label>
@@ -133,10 +133,11 @@ export function PasswordUpdateForm({ isRecovery = false, userEmail }: PasswordUp
           disabled={isPending || success}
           required
           autoComplete="new-password"
+          className="min-h-[44px] rounded-xl"
         />
       </div>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         Must be at least 8 characters and include uppercase, lowercase, and numeric characters.
       </p>
 
@@ -144,7 +145,7 @@ export function PasswordUpdateForm({ isRecovery = false, userEmail }: PasswordUp
         <Button
           type="submit"
           disabled={isPending || success || !password || !confirmPassword}
-          className="w-full sm:w-auto"
+          className="w-full sm:w-auto min-h-[44px] rounded-xl px-6 font-semibold shadow-xs"
         >
           {isPending ? (
             <>

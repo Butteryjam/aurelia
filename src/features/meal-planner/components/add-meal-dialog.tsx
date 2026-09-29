@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import Image from 'next/image'
 import {
   Dialog,
   DialogContent,
@@ -12,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SafeImage } from '@/components/shared/safe-image'
 import {
   Search,
   Users,
@@ -85,8 +85,6 @@ export function AddMealDialog({
     setPrevIsOpen(false)
   }
 
-
-
   // When recipe is selected, auto-fill servings
   function handleSelectRecipe(r: MealPlanRecipeSummary) {
     setSelectedRecipeId(r.id)
@@ -132,7 +130,7 @@ export function AddMealDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
+      <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col rounded-2xl">
         <DialogHeader>
           <DialogTitle className="font-serif text-lg font-bold">
             Schedule a Meal
@@ -152,8 +150,8 @@ export function AddMealDialog({
           {/* Date & Slot Row */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label htmlFor="add-meal-date" className="text-xs text-muted-foreground flex items-center gap-1">
-                <Calendar className="h-3 w-3" /> Date
+              <Label htmlFor="add-meal-date" className="text-xs text-muted-foreground flex items-center gap-1 font-medium">
+                <Calendar className="h-3 w-3 text-primary" /> Date
               </Label>
               <Input
                 id="add-meal-date"
@@ -161,17 +159,17 @@ export function AddMealDialog({
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 required
-                className="h-9 text-xs"
+                className="h-9 text-xs rounded-xl border-border/80"
               />
             </div>
 
             <div className="space-y-1">
-              <Label htmlFor="add-meal-slot" className="text-xs text-muted-foreground">Meal Slot</Label>
+              <Label htmlFor="add-meal-slot" className="text-xs text-muted-foreground font-medium">Meal Slot</Label>
               <select
                 id="add-meal-slot"
                 value={mealType}
                 onChange={(e) => setMealType(e.target.value as MealType)}
-                className="h-9 w-full rounded-md border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+                className="h-9 w-full rounded-xl border border-input bg-background px-2.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {MEAL_TYPES.map((m) => (
                   <option key={m.type} value={m.type}>
@@ -183,29 +181,29 @@ export function AddMealDialog({
           </div>
 
           {/* Mode Switcher: From Vault vs Custom Meal */}
-          <div className="grid grid-cols-2 p-1 bg-muted rounded-lg">
+          <div className="grid grid-cols-2 p-1 bg-muted/80 border border-border/60 rounded-xl">
             <button
               type="button"
               onClick={() => setActiveTab('vault')}
-              className={`flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+              className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 activeTab === 'vault'
-                  ? 'bg-background text-foreground shadow-xs font-semibold'
+                  ? 'bg-background text-foreground shadow-2xs font-semibold'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <BookOpen className="h-3.5 w-3.5" />
+              <BookOpen className="h-3.5 w-3.5 text-primary" />
               <span>From Archive</span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('custom')}
-              className={`flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+              className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
                 activeTab === 'custom'
-                  ? 'bg-background text-foreground shadow-xs font-semibold'
+                  ? 'bg-background text-foreground shadow-2xs font-semibold'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Utensils className="h-3.5 w-3.5" />
+              <Utensils className="h-3.5 w-3.5 text-primary" />
               <span>Custom Meal</span>
             </button>
           </div>
@@ -219,11 +217,11 @@ export function AddMealDialog({
                   placeholder="Search your recipes…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-8 h-8 text-xs"
+                  className="pl-8 h-9 text-xs rounded-xl border-border/80"
                 />
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-1.5 max-h-48 rounded-lg border border-border/50 p-1 divide-y divide-border/30">
+              <div className="flex-1 overflow-y-auto space-y-1.5 max-h-48 rounded-xl border border-border/70 p-1 divide-y divide-border/30">
                 {filteredRecipes.length === 0 ? (
                   <div className="py-6 text-center text-xs text-muted-foreground italic">
                     No matching recipes found.
@@ -236,15 +234,15 @@ export function AddMealDialog({
                         key={r.id}
                         type="button"
                         onClick={() => handleSelectRecipe(r)}
-                        className={`w-full flex items-center gap-2.5 p-2 rounded-md text-left transition-colors ${
+                        className={`w-full flex items-center gap-2.5 p-2 rounded-lg text-left transition-all ${
                           isSelected
-                            ? 'bg-primary/15 text-primary font-semibold'
+                            ? 'bg-primary/10 text-primary font-semibold ring-1 ring-primary/30'
                             : 'hover:bg-muted text-foreground'
                         }`}
                       >
-                        <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded bg-muted">
+                        <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md bg-muted border border-border/40">
                           {r.image_url ? (
-                            <Image src={r.image_url} alt={r.title} fill className="object-cover" sizes="36px" />
+                            <SafeImage src={r.image_url} alt={r.title} fill className="object-cover" sizes="36px" />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center text-muted-foreground">
                               <BookOpen className="h-4 w-4" />
@@ -252,7 +250,7 @@ export function AddMealDialog({
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs truncate">{r.title}</p>
+                          <p className="text-xs truncate font-medium">{r.title}</p>
                           <p className="text-[10px] text-muted-foreground">
                             {r.servings ? `${r.servings} serv` : ''}
                             {r.total_time ? ` · ${r.total_time} min` : ''}
@@ -270,13 +268,13 @@ export function AddMealDialog({
           {activeTab === 'custom' && (
             <div className="space-y-3 pt-1">
               <div className="space-y-1">
-                <Label htmlFor="add-meal-custom-title" className="text-xs text-muted-foreground">Meal Name</Label>
+                <Label htmlFor="add-meal-custom-title" className="text-xs text-muted-foreground font-medium">Meal Name</Label>
                 <Input
                   id="add-meal-custom-title"
                   placeholder='e.g. "Dinner out with friends", "Leftover soup"'
                   value={customTitle}
                   onChange={(e) => setCustomTitle(e.target.value)}
-                  className="h-9 text-xs"
+                  className="h-9 text-xs rounded-xl border-border/80"
                 />
               </div>
             </div>
@@ -284,8 +282,8 @@ export function AddMealDialog({
 
           {/* Servings Stepper */}
           <div className="flex items-center justify-between border-t border-border/40 pt-3">
-            <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <Users className="h-3.5 w-3.5" />
+            <Label className="text-xs text-muted-foreground flex items-center gap-1.5 font-medium">
+              <Users className="h-3.5 w-3.5 text-primary" />
               <span>Servings</span>
             </Label>
             <div className="flex items-center gap-2">
@@ -293,10 +291,11 @@ export function AddMealDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-7 w-7 p-0"
+                className="h-8 w-8 p-0 rounded-lg border-border/80 touch-target focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => setServings((s) => Math.max(1, s - 1))}
+                aria-label="Decrease servings"
               >
-                <Minus className="h-3 w-3" />
+                <Minus className="h-3.5 w-3.5" />
               </Button>
               <span className="w-8 text-center text-xs font-bold tabular-nums">
                 {servings}
@@ -305,35 +304,36 @@ export function AddMealDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-7 w-7 p-0"
+                className="h-8 w-8 p-0 rounded-lg border-border/80 touch-target focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => setServings((s) => s + 1)}
+                aria-label="Increase servings"
               >
-                <Plus className="h-3 w-3" />
+                <Plus className="h-3.5 w-3.5" />
               </Button>
             </div>
           </div>
 
           {/* Notes */}
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Notes (optional)</Label>
+            <Label className="text-xs text-muted-foreground font-medium">Notes (optional)</Label>
             <Input
               placeholder='e.g. "Prep night before", "Make extra rice"'
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="h-8 text-xs"
+              className="h-9 text-xs rounded-xl border-border/80"
             />
           </div>
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <p className="text-xs text-destructive font-medium">{error}</p>}
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/40">
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-border/40">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={onClose}
-              className="h-8 text-xs"
+              className="h-9 px-3.5 text-xs rounded-xl font-medium border-border/80"
             >
               Cancel
             </Button>
@@ -341,7 +341,7 @@ export function AddMealDialog({
               type="submit"
               size="sm"
               disabled={isPending}
-              className="h-8 text-xs font-semibold"
+              className="h-9 px-4 text-xs font-semibold rounded-xl shadow-2xs"
             >
               {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
               Add to Plan

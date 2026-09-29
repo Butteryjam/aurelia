@@ -1,11 +1,12 @@
 @import "tailwindcss";
 
 /*
- * Aurelia Design System
- * -------------------------
- * Warm, editorial, food-focused palette.
- * Light: creamy off-whites, warm stone grays, terracotta accent.
- * Dark: deep warm charcoals, muted amber highlights.
+ * Aurelia Design System (Phase 2 Refinement)
+ * -------------------------------------------
+ * Luxury, editorial, food-focused palette & tokens.
+ * Light: creamy porcelain background, warm stone surfaces, terracotta accent.
+ * Dark: deep warm charcoals, muted amber & terracotta highlights.
+ * Semantic: restrained sage (success), warm amber (warning), muted terracotta (destructive).
  */
 
 @custom-variant dark (&:is(.dark *));
@@ -33,8 +34,15 @@
   --accent: 35 30% 91%;
   --accent-foreground: 30 10% 22%;
 
-  --destructive: 0 72% 51%;
+  /* Restrained semantic tones */
+  --destructive: 4 65% 50%;
   --destructive-foreground: 0 0% 100%;
+
+  --success: 145 32% 40%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 36 68% 46%;
+  --warning-foreground: 30 10% 12%;
 
   --border: 30 15% 88%;
   --input: 30 15% 88%;
@@ -47,12 +55,17 @@
   --sidebar-accent-foreground: 30 10% 22%;
   --sidebar-ring: 16 60% 46%;
 
-  --radius: 0.5rem;
+  /* Semantic Elevation Tokens */
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+  --shadow-hover: 0 8px 20px -3px rgb(0 0 0 / 0.07), 0 3px 8px -2px rgb(0 0 0 / 0.04);
+  --shadow-dialog: 0 20px 30px -6px rgb(0 0 0 / 0.12), 0 10px 14px -5px rgb(0 0 0 / 0.08);
 
-  --success: 142 71% 35%;
-  --success-foreground: 0 0% 100%;
-  --warning: 38 92% 50%;
-  --warning-foreground: 30 10% 12%;
+  /* Radius System */
+  --radius-sm: 0.375rem; /* 6px */
+  --radius-md: 0.5rem;   /* 8px - Small UI */
+  --radius-lg: 0.75rem;  /* 12px - Inputs / Buttons / Dialogs */
+  --radius-xl: 1rem;     /* 16px - Cards / Hero Media / Outer Sheets */
+  --radius: 0.75rem;     /* Default component radius */
 }
 
 .dark {
@@ -77,8 +90,15 @@
   --accent: 25 12% 16%;
   --accent-foreground: 35 15% 85%;
 
-  --destructive: 0 62% 50%;
+  /* Restrained semantic tones in dark mode */
+  --destructive: 4 60% 54%;
   --destructive-foreground: 0 0% 100%;
+
+  --success: 145 35% 48%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 36 65% 55%;
+  --warning-foreground: 25 15% 8%;
 
   --border: 25 10% 18%;
   --input: 25 10% 18%;
@@ -91,10 +111,9 @@
   --sidebar-accent-foreground: 35 15% 85%;
   --sidebar-ring: 18 55% 52%;
 
-  --success: 142 60% 40%;
-  --success-foreground: 0 0% 100%;
-  --warning: 38 80% 55%;
-  --warning-foreground: 25 15% 8%;
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.25), 0 1px 2px -1px rgb(0 0 0 / 0.25);
+  --shadow-hover: 0 8px 20px -3px rgb(0 0 0 / 0.35), 0 3px 8px -2px rgb(0 0 0 / 0.25);
+  --shadow-dialog: 0 20px 30px -6px rgb(0 0 0 / 0.5), 0 10px 14px -5px rgb(0 0 0 / 0.4);
 }
 
 @theme inline {
@@ -128,24 +147,30 @@
   --color-warning: hsl(var(--warning));
   --color-warning-foreground: hsl(var(--warning-foreground));
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius));
-  --radius-lg: calc(var(--radius) + 4px);
-  --radius-xl: calc(var(--radius) + 8px);
+  /* Elevation Shadows */
+  --shadow-card: var(--shadow-card);
+  --shadow-hover: var(--shadow-hover);
+  --shadow-dialog: var(--shadow-dialog);
+
+  /* Radius System */
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
 
   --font-sans: var(--font-sans);
   --font-serif: var(--font-serif);
 
-  --animate-fade-in: fade-in 0.2s ease-out;
-  --animate-fade-up: fade-up 0.3s ease-out;
-  --animate-slide-in-right: slide-in-right 0.2s ease-out;
+  --animate-fade-in: fade-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-fade-up: fade-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-in-right: slide-in-right 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 
   @keyframes fade-in {
     from { opacity: 0; }
     to { opacity: 1; }
   }
   @keyframes fade-up {
-    from { opacity: 0; transform: translateY(8px); }
+    from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
   }
   @keyframes slide-in-right {
@@ -161,10 +186,78 @@
 }
 
 body {
-  @apply bg-background text-foreground font-sans antialiased;
+  @apply bg-background text-foreground font-sans antialiased selection:bg-primary/15 selection:text-primary;
 }
 
 /* Smooth focus ring for keyboard navigation */
 :focus-visible {
   @apply outline-2 outline-offset-2 outline-ring;
+}
+
+/* --- Typography Tiers --- */
+.text-display {
+  @apply text-3xl sm:text-4xl font-serif font-bold tracking-tight text-foreground;
+}
+
+.text-page-title {
+  @apply text-2xl sm:text-3xl font-serif font-bold tracking-tight text-foreground;
+}
+
+.text-section-title {
+  @apply text-lg sm:text-xl font-serif font-semibold tracking-tight text-foreground;
+}
+
+.text-card-title {
+  @apply text-base font-sans font-semibold tracking-tight text-foreground;
+}
+
+.text-eyebrow {
+  @apply text-[11px] font-sans font-bold uppercase tracking-wider text-muted-foreground;
+}
+
+.text-meta {
+  @apply text-xs font-medium text-muted-foreground;
+}
+
+.text-meta-muted {
+  @apply text-xs text-muted-foreground/80;
+}
+
+/* --- Elevation Helper Classes --- */
+.elevation-flat {
+  box-shadow: none;
+}
+
+.elevation-card {
+  box-shadow: var(--shadow-card);
+}
+
+.elevation-hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.elevation-dialog {
+  box-shadow: var(--shadow-dialog);
+}
+
+/* --- Touch Target Expansion (Accessibility) --- */
+.touch-target {
+  position: relative;
+}
+.touch-target::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+/* --- Accessibility & Reduced Motion --- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

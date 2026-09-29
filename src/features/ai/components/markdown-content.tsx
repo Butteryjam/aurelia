@@ -339,11 +339,11 @@ export function parseInline(
           <Link
             key={key}
             href={targetHref}
-            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 my-0.5 mx-1 rounded-lg border border-primary/30 bg-primary/10 text-primary font-semibold text-xs hover:bg-primary/20 transition-colors align-middle"
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 my-0.5 mx-1 rounded-md border border-primary/25 bg-primary/10 text-primary font-medium text-xs hover:bg-primary/20 hover:border-primary/40 transition-all align-middle shadow-2xs group"
           >
-            <BookOpen className="h-3 w-3 shrink-0" />
+            <BookOpen className="h-3 w-3 shrink-0 text-primary/80 group-hover:text-primary transition-colors" />
             <span className="truncate max-w-[200px]">{title}</span>
-            <ArrowRight className="h-2.5 w-2.5 shrink-0" />
+            <ArrowRight className="h-2.5 w-2.5 shrink-0 opacity-70 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
           </Link>
         )
         break
@@ -367,7 +367,7 @@ export function parseInline(
               href={safeHref}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors font-medium"
+              className="text-primary underline underline-offset-4 hover:text-primary/80 transition-colors font-medium"
             >
               {linkLabel}
             </a>
@@ -377,7 +377,7 @@ export function parseInline(
             <Link
               key={key}
               href={safeHref}
-              className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors font-medium"
+              className="text-primary underline underline-offset-4 hover:text-primary/80 transition-colors font-medium"
             >
               {linkLabel}
             </Link>
@@ -435,7 +435,7 @@ export function MarkdownContent({ content, references, className = '' }: Markdow
   const blocks = parseMarkdownBlocks(content)
 
   return (
-    <div className={`space-y-2 text-sm leading-relaxed ${className}`}>
+    <div className={`space-y-2.5 text-sm leading-relaxed ${className}`}>
       {blocks.map((block, idx) => {
         const key = `block-${idx}`
 
@@ -447,7 +447,7 @@ export function MarkdownContent({ content, references, className = '' }: Markdow
                 return (
                   <h1
                     key={key}
-                    className="font-serif text-base font-bold text-foreground mt-3 mb-1.5 first:mt-0 tracking-tight"
+                    className="font-serif text-lg font-bold text-foreground mt-4 mb-2 first:mt-0 tracking-tight"
                   >
                     {inner}
                   </h1>
@@ -456,14 +456,14 @@ export function MarkdownContent({ content, references, className = '' }: Markdow
                 return (
                   <h2
                     key={key}
-                    className="font-serif text-sm font-bold text-foreground mt-2.5 mb-1 first:mt-0 tracking-tight"
+                    className="font-serif text-base font-semibold text-foreground mt-3 mb-1.5 first:mt-0 tracking-tight"
                   >
                     {inner}
                   </h2>
                 )
               case 3:
                 return (
-                  <h3 key={key} className="font-semibold text-sm text-foreground mt-2 mb-1 first:mt-0">
+                  <h3 key={key} className="font-semibold text-sm text-foreground mt-2.5 mb-1 first:mt-0">
                     {inner}
                   </h3>
                 )
@@ -472,7 +472,7 @@ export function MarkdownContent({ content, references, className = '' }: Markdow
                 return (
                   <h4
                     key={key}
-                    className="font-semibold text-xs uppercase tracking-wider text-muted-foreground mt-1.5 mb-0.5 first:mt-0"
+                    className="font-semibold text-xs uppercase tracking-wider text-muted-foreground mt-2 mb-1 first:mt-0"
                   >
                     {inner}
                   </h4>
@@ -499,7 +499,7 @@ export function MarkdownContent({ content, references, className = '' }: Markdow
             return (
               <ul
                 key={key}
-                className="list-disc list-outside pl-5 my-1.5 space-y-1 text-sm leading-relaxed text-foreground/90"
+                className="list-disc list-outside pl-5 my-2 space-y-1.5 text-sm leading-relaxed text-foreground/90 marker:text-primary/70"
               >
                 {block.items.map((item, itemIdx) => (
                   <li
@@ -516,7 +516,7 @@ export function MarkdownContent({ content, references, className = '' }: Markdow
             return (
               <ol
                 key={key}
-                className="list-decimal list-outside pl-5 my-1.5 space-y-1 text-sm leading-relaxed text-foreground/90"
+                className="list-decimal list-outside pl-5 my-2 space-y-1.5 text-sm leading-relaxed text-foreground/90 marker:text-primary/70 marker:font-semibold"
               >
                 {block.items.map((item, itemIdx) => (
                   <li key={itemIdx} className={`leading-relaxed ${item.indent >= 2 ? 'ml-3' : ''}`}>
@@ -530,7 +530,7 @@ export function MarkdownContent({ content, references, className = '' }: Markdow
             return (
               <blockquote
                 key={key}
-                className="my-2 pl-3 border-l-2 border-primary/40 italic text-muted-foreground text-sm"
+                className="my-2.5 pl-3.5 py-1.5 border-l-2 border-primary/50 bg-primary/5 rounded-r-lg italic text-foreground/80 text-sm"
               >
                 {parseInline(block.content, references, `bq-${idx}`)}
               </blockquote>
@@ -540,14 +540,14 @@ export function MarkdownContent({ content, references, className = '' }: Markdow
             return (
               <pre
                 key={key}
-                className="my-2 p-2.5 rounded-lg bg-muted/70 border border-border/60 font-mono text-xs overflow-x-auto text-foreground"
+                className="my-2.5 p-3 rounded-xl bg-muted/70 border border-border/70 font-mono text-xs overflow-x-auto text-foreground shadow-2xs"
               >
                 <code>{block.content}</code>
               </pre>
             )
 
           case 'hr':
-            return <hr key={key} className="my-2.5 border-border/60" />
+            return <hr key={key} className="my-3 border-border/60" />
 
           default:
             return null

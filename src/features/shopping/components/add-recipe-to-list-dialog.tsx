@@ -85,10 +85,10 @@ export function AddRecipeToListDialog({ listId, onSuccess }: AddRecipeToListDial
         variant="outline"
         size="sm"
         onClick={openDialog}
-        className="h-9 gap-2 text-xs"
+        className="h-9 gap-2 text-xs font-semibold rounded-xl border-border/80 bg-background/80 hover:bg-muted hover:border-primary/40 hover:text-primary transition-all shadow-2xs"
       >
-        <BookOpen className="h-3.5 w-3.5" />
-        Add from Recipe
+        <BookOpen className="h-3.5 w-3.5 text-primary" />
+        <span>Add from Recipe</span>
       </Button>
     )
   }
@@ -97,7 +97,7 @@ export function AddRecipeToListDialog({ listId, onSuccess }: AddRecipeToListDial
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+        className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs"
         onClick={close}
         aria-hidden="true"
       />
@@ -113,7 +113,7 @@ export function AddRecipeToListDialog({ listId, onSuccess }: AddRecipeToListDial
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div>
-            <h2 id="add-recipe-dialog-title" className="font-serif text-lg font-bold text-foreground">
+            <h2 id="add-recipe-dialog-title" className="font-serif text-lg font-bold text-foreground tracking-tight">
               Add Recipe to List
             </h2>
             <p id="add-recipe-dialog-desc" className="text-xs text-muted-foreground mt-0.5">
@@ -123,10 +123,10 @@ export function AddRecipeToListDialog({ listId, onSuccess }: AddRecipeToListDial
           <button
             type="button"
             onClick={close}
-            className="relative rounded-lg p-1.5 text-muted-foreground hover:bg-muted transition-colors after:absolute after:-inset-2 after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="relative rounded-lg p-2 text-muted-foreground hover:bg-muted transition-colors after:absolute after:-inset-1.5 after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="Close dialog"
           >
-            <span aria-hidden="true" className="text-base leading-none">✕</span>
+            <span aria-hidden="true" className="text-base leading-none font-bold">✕</span>
           </button>
         </div>
 

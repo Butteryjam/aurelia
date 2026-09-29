@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
+import { CalendarDays } from 'lucide-react'
 import { PageHeader } from '@/components/shared/page-header'
+import { Badge } from '@/components/ui/badge'
 import { MealPlannerView } from '@/features/meal-planner/components/meal-planner-view'
 import {
   getWeekRange,
@@ -34,8 +36,14 @@ export default async function MealPlannerPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Weekly Meal Planner"
-        description="Plan your week's meals, track daily nutrition, launch Cook Mode, and export grocery ingredients with one click."
+        title="Meal Planner"
+        description="Your personal weekly menu, balancing daily nourishment, culinary rhythm, and kitchen provisions."
+        badge={
+          <Badge variant="secondary" className="gap-1.5 px-2.5 py-0.5 text-xs font-medium">
+            <CalendarDays className="h-3.5 w-3.5 text-primary" />
+            <span>Weekly Menu</span>
+          </Badge>
+        }
       />
 
       <MealPlannerView

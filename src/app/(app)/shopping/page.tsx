@@ -2,10 +2,12 @@ import type { Metadata } from 'next'
 import { PageHeader } from '@/components/shared/page-header'
 import { ShoppingListView } from '@/features/shopping/components/shopping-list-view'
 import { getShoppingLists, getShoppingListWithItems, getActiveShoppingList } from '@/features/shopping/queries'
+import { Badge } from '@/components/ui/badge'
+import { ShoppingBag } from 'lucide-react'
 
 export const metadata: Metadata = {
-  title: 'Shopping Lists | Aurelia',
-  description: 'Manage your grocery shopping lists. Generate from recipes or add items manually.',
+  title: 'Shopping | Aurelia',
+  description: 'Your intelligent kitchen provisioning companion, consolidated from your culinary archive and meal plans.',
 }
 
 interface ShoppingPageProps {
@@ -31,8 +33,17 @@ export default async function ShoppingPage({ searchParams }: ShoppingPageProps) 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Shopping Lists"
-        description="Generate smart shopping lists from your recipes or add items manually."
+        title="Shopping"
+        description="Your intelligent kitchen provisioning companion, consolidated from your culinary archive and meal plans."
+        badge={
+          <Badge
+            variant="outline"
+            className="gap-1.5 border-primary/25 bg-primary/10 text-primary text-xs font-medium px-2.5 py-0.5 shadow-2xs"
+          >
+            <ShoppingBag className="h-3 w-3" />
+            <span>Kitchen Provisioning</span>
+          </Badge>
+        }
       />
 
       <ShoppingListView lists={lists} activeList={activeList} />

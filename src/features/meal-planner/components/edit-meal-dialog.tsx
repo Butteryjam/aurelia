@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import Image from 'next/image'
 import {
   Dialog,
   DialogContent,
@@ -13,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { SafeImage } from '@/components/shared/safe-image'
 import {
   Minus,
   Plus,
@@ -109,10 +109,10 @@ function EditMealForm({
       )}
 
       {/* Meal Preview Banner */}
-      <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-muted/30 p-2.5">
-        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-muted border border-border/50">
+      <div className="flex items-center gap-3 rounded-xl border border-border/80 bg-muted/40 p-2.5">
+        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-muted border border-border/40">
           {displayImage ? (
-            <Image
+            <SafeImage
               src={displayImage}
               alt={displayTitle}
               fill
@@ -138,7 +138,7 @@ function EditMealForm({
       <form onSubmit={handleSave} className="space-y-4">
         {/* Date Picker */}
         <div className="space-y-1.5">
-          <Label htmlFor="edit-meal-date" className="text-xs">
+          <Label htmlFor="edit-meal-date" className="text-xs font-medium text-muted-foreground">
             Date
           </Label>
           <div className="relative">
@@ -148,7 +148,7 @@ function EditMealForm({
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="pl-9 text-xs"
+              className="pl-9 h-9 text-xs rounded-xl border-border/80"
               required
             />
           </div>
@@ -156,17 +156,17 @@ function EditMealForm({
 
         {/* Meal Slot Selection */}
         <div className="space-y-1.5">
-          <Label className="text-xs">Meal Slot</Label>
-          <div className="grid grid-cols-4 gap-1.5">
+          <Label className="text-xs font-medium text-muted-foreground">Meal Slot</Label>
+          <div className="grid grid-cols-4 gap-1 p-1 bg-muted/80 border border-border/60 rounded-xl">
             {MEAL_TYPES.map((type) => (
               <button
                 key={type.type}
                 type="button"
                 onClick={() => setMealType(type.type)}
-                className={`py-1.5 rounded-lg border text-xs font-medium transition-all capitalize ${
+                className={`py-1.5 rounded-lg text-xs font-medium transition-all capitalize ${
                   mealType === type.type
-                    ? 'border-primary bg-primary/10 text-primary font-semibold'
-                    : 'border-border/60 hover:border-border text-muted-foreground'
+                    ? 'bg-background text-foreground shadow-2xs font-semibold'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {type.label}
@@ -176,46 +176,48 @@ function EditMealForm({
         </div>
 
         {/* Servings Counter */}
-        <div className="space-y-1.5">
-          <Label className="text-xs">Planned Servings</Label>
+        <div className="flex items-center justify-between border-t border-border/40 pt-3">
+          <Label className="text-xs font-medium text-muted-foreground">Planned Servings</Label>
           <div className="flex items-center gap-3">
-            <div className="flex items-center rounded-lg border border-border bg-card">
+            <div className="flex items-center rounded-lg border border-border/80 bg-card">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 rounded-r-none"
+                className="h-8 w-8 rounded-r-none touch-target"
                 onClick={() => setServings((s) => Math.max(1, s - 1))}
                 disabled={servings <= 1}
+                aria-label="Decrease servings"
               >
                 <Minus className="h-3 w-3" />
               </Button>
-              <div className="flex w-12 items-center justify-center text-xs font-semibold">
+              <div className="flex w-10 items-center justify-center text-xs font-bold tabular-nums">
                 {servings}
               </div>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 rounded-l-none"
+                className="h-8 w-8 rounded-l-none touch-target"
                 onClick={() => setServings((s) => Math.min(50, s + 1))}
+                aria-label="Increase servings"
               >
                 <Plus className="h-3 w-3" />
               </Button>
             </div>
             <span className="text-xs text-muted-foreground">
-              Scaling ingredient portions for this meal
+              Scaling portions
             </span>
           </div>
         </div>
 
         {/* Cooking Status */}
-        <div className="flex items-center justify-between rounded-xl border border-border/60 p-2.5">
+        <div className="flex items-center justify-between rounded-xl border border-border/70 p-2.5 bg-muted/20">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setIsCooked(!isCooked)}
-              className="flex items-center gap-2 text-xs font-medium text-foreground hover:text-primary transition-colors"
+              className="flex items-center gap-2 text-xs font-medium text-foreground hover:text-primary transition-colors touch-target"
             >
               {isCooked ? (
                 <CheckCircle2 className="h-4 w-4 text-emerald-500" />
@@ -226,7 +228,7 @@ function EditMealForm({
             </button>
           </div>
           {isCooked && (
-            <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+            <span className="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 text-[10px] font-semibold">
               Completed
             </span>
           )}
@@ -234,7 +236,7 @@ function EditMealForm({
 
         {/* Notes */}
         <div className="space-y-1.5">
-          <Label htmlFor="edit-meal-notes" className="text-xs">
+          <Label htmlFor="edit-meal-notes" className="text-xs font-medium text-muted-foreground">
             Notes / Prep Instructions
           </Label>
           <Textarea
@@ -243,19 +245,19 @@ function EditMealForm({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
-            className="resize-none text-xs"
+            className="resize-none text-xs rounded-xl border-border/80"
           />
         </div>
 
         {/* Dialog Action Buttons */}
-        <div className="flex items-center justify-between pt-2 border-t border-border/40">
+        <div className="flex items-center justify-between pt-3 border-t border-border/40">
           <Button
             type="button"
             variant="ghost"
             size="sm"
             onClick={handleDelete}
             disabled={isPending || isDeleting}
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive h-8 px-2.5 text-xs gap-1.5"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive h-9 px-3 text-xs gap-1.5 rounded-xl font-medium"
           >
             {isDeleting ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -272,7 +274,7 @@ function EditMealForm({
               size="sm"
               onClick={onClose}
               disabled={isPending}
-              className="h-8 text-xs"
+              className="h-9 px-3.5 text-xs rounded-xl font-medium border-border/80"
             >
               Cancel
             </Button>
@@ -280,7 +282,7 @@ function EditMealForm({
               type="submit"
               size="sm"
               disabled={isPending}
-              className="h-8 text-xs min-w-20"
+              className="h-9 px-4 text-xs font-semibold rounded-xl min-w-24 shadow-2xs"
             >
               {isPending && !isDeleting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
@@ -302,7 +304,7 @@ export function EditMealDialog({
 }: EditMealDialogProps) {
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md rounded-2xl">
         <DialogHeader>
           <DialogTitle className="font-serif text-lg font-bold">
             Edit Planned Meal

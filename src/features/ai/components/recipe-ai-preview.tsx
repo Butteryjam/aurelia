@@ -11,11 +11,25 @@ import {
   Clock,
   AlertTriangle,
   Loader2,
+  Eye,
+  EyeOff,
+  Sparkles,
+  Utensils,
+  Layers,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { AiBadge } from './ai-badge'
 import { createRecipe } from '@/features/recipes/actions'
 import type { ExtractedRecipeData } from '../types'
@@ -36,6 +50,8 @@ export function RecipeAiPreview({
   const router = useRouter()
   const [isSaving, startSaving] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  const [showSourceImage, setShowSourceImage] = useState(true)
+  const [showDiscardDialog, setShowDiscardDialog] = useState(false)
 
   // Local editable form state
   const [title, setTitle] = useState(initialData.title || '')
@@ -196,30 +212,35 @@ export function RecipeAiPreview({
   }
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-8 pb-16">
-      {/* Top Banner & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 sm:p-5 rounded-2xl bg-card border border-border shadow-xs">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
+    <div className="w-full max-w-4xl mx-auto space-y-8 pb-20">
+      {/* Top Banner & Primary Actions (Explicit Preview vs Saved State) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 sm:p-6 rounded-2xl bg-card border border-border/80 shadow-xs">
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
             <AiBadge type={badgeType} />
-            <span className="text-xs text-muted-foreground font-medium">Review & Edit</span>
+            <Badge
+              variant="outline"
+              className="text-[11px] font-medium border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+            >
+              Unsaved Preview
+            </Badge>
           </div>
-          <h2 className="text-lg sm:text-xl font-bold font-serif text-foreground">
+          <h2 className="text-xl sm:text-2xl font-bold font-serif text-foreground tracking-tight">
             Recipe Preview
           </h2>
-          <p className="text-xs text-muted-foreground">
-            Review the extracted details below. Make any adjustments, then save directly to your archive.
+          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed max-w-xl">
+            Aurelia structured this entry from your source content. Review, edit any fields below, and save to your cookbook when ready.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-center">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={onStartOver}
+            onClick={() => setShowDiscardDialog(true)}
             disabled={isSaving}
-            className="gap-1.5 text-xs"
+            className="gap-1.5 text-xs min-h-[40px] px-3.5"
           >
             <RotateCcw className="h-3.5 w-3.5" />
             <span>Discard</span>
@@ -230,126 +251,181 @@ export function RecipeAiPreview({
             size="sm"
             onClick={handleSave}
             disabled={isSaving}
-            className="gap-1.5 text-xs font-semibold shadow-xs"
+            className="gap-2 text-xs font-semibold shadow-xs min-h-[40px] px-5"
           >
             {isSaving ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Save className="h-3.5 w-3.5" />
+              <Save className="h-4 w-4" />
             )}
             <span>Save to Cookbook</span>
           </Button>
         </div>
       </div>
 
-      {/* Confidence notes or warnings */}
+      {/* AI Extraction Confidence or Context Notes */}
       {initialData.confidenceNotes && (
-        <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 text-xs">
+        <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200 text-xs sm:text-sm">
           <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <div>
-            <span className="font-semibold">AI Extraction Note:</span> {initialData.confidenceNotes}
+          <div className="space-y-0.5">
+            <span className="font-semibold">AI Extraction Note:</span>{' '}
+            <span className="leading-relaxed">{initialData.confidenceNotes}</span>
           </div>
         </div>
       )}
 
-      {/* Save Error */}
+      {/* Save Error Alert */}
       {error && (
-        <div className="p-4 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-xs font-medium">
-          {error}
+        <div
+          role="alert"
+          className="flex items-start gap-3 p-4 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-xs sm:text-sm"
+        >
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="leading-relaxed font-medium">{error}</div>
         </div>
       )}
 
-      {/* Source Image if present */}
+      {/* Source Image Reference (Collapsible for Cross-Checking) */}
       {sourceImageUrl && (
-        <div className="relative aspect-[21/9] sm:aspect-[16/6] w-full rounded-2xl overflow-hidden border border-border bg-black/5">
-          <Image
-            src={sourceImageUrl}
-            alt="Source recipe photo"
-            fill
-            className="object-contain"
-          />
-          <div className="absolute bottom-2 left-2 px-2.5 py-1 rounded-md bg-background/80 backdrop-blur-xs text-[11px] font-medium text-foreground">
-            Source Image
+        <div className="p-4 sm:p-5 rounded-2xl border border-border/80 bg-card space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Original Photo Reference
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                (Cross-reference original text)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSourceImage(!showSourceImage)}
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors p-1"
+            >
+              {showSourceImage ? (
+                <>
+                  <EyeOff className="h-3.5 w-3.5" />
+                  <span>Hide Photo</span>
+                </>
+              ) : (
+                <>
+                  <Eye className="h-3.5 w-3.5" />
+                  <span>View Photo</span>
+                </>
+              )}
+            </button>
           </div>
+
+          {showSourceImage && (
+            <div className="relative aspect-[16/9] sm:aspect-[21/9] max-h-80 w-full rounded-xl overflow-hidden border border-border/60 bg-neutral-900/5 dark:bg-black/30">
+              <Image
+                src={sourceImageUrl}
+                alt="Source recipe photo"
+                fill
+                unoptimized
+                className="object-contain"
+              />
+            </div>
+          )}
         </div>
       )}
 
       {/* Editable Fields Grid */}
       <div className="space-y-6">
-        {/* Core Info */}
-        <div className="p-5 sm:p-6 rounded-2xl border border-border bg-card space-y-4">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Basic Information
-          </h3>
+        {/* Section 1: Basic Information */}
+        <div className="p-5 sm:p-6 rounded-2xl border border-border/80 bg-card space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-border/60">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              <span>Basic Information</span>
+            </h3>
+            <span className="text-[11px] text-muted-foreground">* Required fields</span>
+          </div>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div>
-              <Label htmlFor="preview-title" className="text-xs font-medium">
+              <Label htmlFor="preview-title" className="text-xs font-semibold text-foreground">
                 Recipe Title *
               </Label>
               <Input
                 id="preview-title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="mt-1 font-serif text-base sm:text-lg font-semibold"
+                className="mt-1.5 font-serif text-lg sm:text-xl font-semibold h-11 tracking-tight"
                 placeholder="e.g. Classic Beef Bourguignon"
+                required
               />
             </div>
 
             <div>
-              <Label htmlFor="preview-desc" className="text-xs font-medium">
-                Description
+              <Label htmlFor="preview-desc" className="text-xs font-semibold text-foreground">
+                Description & Culinary Notes
               </Label>
               <Textarea
                 id="preview-desc"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={2}
-                className="mt-1 text-xs sm:text-sm"
+                className="mt-1.5 text-xs sm:text-sm leading-relaxed resize-y"
                 placeholder="A rich, fragrant French stew with red wine, carrots, and mushrooms."
               />
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
               <div>
-                <Label className="text-xs text-muted-foreground">Prep Time (min)</Label>
+                <Label htmlFor="preview-prep" className="text-xs text-muted-foreground">
+                  Prep Time (min)
+                </Label>
                 <Input
+                  id="preview-prep"
                   type="number"
+                  min="0"
                   value={prepTime}
                   onChange={(e) => setPrepTime(e.target.value)}
-                  className="mt-1 h-9 text-xs"
+                  className="mt-1 h-9 text-xs sm:text-sm"
                   placeholder="15"
                 />
               </div>
 
               <div>
-                <Label className="text-xs text-muted-foreground">Cook Time (min)</Label>
+                <Label htmlFor="preview-cook" className="text-xs text-muted-foreground">
+                  Cook Time (min)
+                </Label>
                 <Input
+                  id="preview-cook"
                   type="number"
+                  min="0"
                   value={cookTime}
                   onChange={(e) => setCookTime(e.target.value)}
-                  className="mt-1 h-9 text-xs"
+                  className="mt-1 h-9 text-xs sm:text-sm"
                   placeholder="30"
                 />
               </div>
 
               <div>
-                <Label className="text-xs text-muted-foreground">Servings</Label>
+                <Label htmlFor="preview-servings" className="text-xs text-muted-foreground">
+                  Servings
+                </Label>
                 <Input
+                  id="preview-servings"
                   type="number"
+                  min="1"
                   value={servings}
                   onChange={(e) => setServings(e.target.value)}
-                  className="mt-1 h-9 text-xs"
+                  className="mt-1 h-9 text-xs sm:text-sm"
                   placeholder="4"
                 />
               </div>
 
               <div>
-                <Label className="text-xs text-muted-foreground">Difficulty</Label>
+                <Label htmlFor="preview-difficulty" className="text-xs text-muted-foreground">
+                  Difficulty
+                </Label>
                 <select
+                  id="preview-difficulty"
                   value={difficulty}
                   onChange={(e) => setDifficulty(e.target.value as 'easy' | 'medium' | 'hard')}
-                  className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-xs focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                  className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-xs sm:text-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <option value="easy">Easy</option>
                   <option value="medium">Medium</option>
@@ -358,22 +434,28 @@ export function RecipeAiPreview({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               <div>
-                <Label className="text-xs text-muted-foreground">Cuisine</Label>
+                <Label htmlFor="preview-cuisine" className="text-xs text-muted-foreground">
+                  Cuisine
+                </Label>
                 <Input
+                  id="preview-cuisine"
                   value={cuisine}
                   onChange={(e) => setCuisine(e.target.value)}
-                  className="mt-1 h-9 text-xs"
-                  placeholder="e.g. Italian, Mexican, Thai"
+                  className="mt-1 h-9 text-xs sm:text-sm"
+                  placeholder="e.g. Italian, French, Mexican"
                 />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Category</Label>
+                <Label htmlFor="preview-category" className="text-xs text-muted-foreground">
+                  Category
+                </Label>
                 <Input
+                  id="preview-category"
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="mt-1 h-9 text-xs"
+                  className="mt-1 h-9 text-xs sm:text-sm"
                   placeholder="e.g. Dinner, Soup, Dessert"
                 />
               </div>
@@ -381,15 +463,16 @@ export function RecipeAiPreview({
           </div>
         </div>
 
-        {/* Ingredients Editor */}
-        <div className="p-5 sm:p-6 rounded-2xl border border-border bg-card space-y-4">
-          <div className="flex items-center justify-between">
+        {/* Section 2: Ingredients Editor */}
+        <div className="p-5 sm:p-6 rounded-2xl border border-border/80 bg-card space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-border/60">
             <div>
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                Ingredients ({ingredients.length})
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <Utensils className="h-3.5 w-3.5 text-primary" />
+                <span>Ingredients ({ingredients.length})</span>
               </h3>
-              <p className="text-xs text-muted-foreground">
-                Amounts, units, and ingredient names extracted by AI.
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Quantities, units, names, and preparation notes extracted by AI.
               </p>
             </div>
             <Button
@@ -397,66 +480,123 @@ export function RecipeAiPreview({
               variant="outline"
               size="sm"
               onClick={addIngredient}
-              className="h-8 gap-1 text-xs"
+              className="h-8 gap-1.5 text-xs font-medium min-h-[36px]"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>Add Ingredient</span>
             </Button>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {ingredients.map((ing, idx) => (
               <div
                 key={idx}
-                className="flex items-center gap-2 p-2 rounded-xl bg-muted/30 border border-border/50 group"
+                className="p-2.5 sm:p-2 rounded-xl bg-muted/40 border border-border/60 transition-colors focus-within:border-primary/40 focus-within:bg-muted/60"
               >
-                <Input
-                  value={ing.quantity}
-                  onChange={(e) => updateIngredient(idx, 'quantity', e.target.value)}
-                  placeholder="Qty"
-                  className="w-16 h-8 text-xs shrink-0"
-                />
-                <Input
-                  value={ing.unit}
-                  onChange={(e) => updateIngredient(idx, 'unit', e.target.value)}
-                  placeholder="Unit"
-                  className="w-20 h-8 text-xs shrink-0"
-                />
-                <Input
-                  value={ing.name}
-                  onChange={(e) => updateIngredient(idx, 'name', e.target.value)}
-                  placeholder="Ingredient name *"
-                  className="flex-1 h-8 text-xs font-medium"
-                />
-                <Input
-                  value={ing.preparationNote}
-                  onChange={(e) => updateIngredient(idx, 'preparationNote', e.target.value)}
-                  placeholder="Prep note (e.g. minced)"
-                  className="w-32 h-8 text-xs hidden sm:block"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeIngredient(idx)}
-                  className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                {/* Desktop layout: Single inline flex row */}
+                <div className="hidden sm:flex items-center gap-2">
+                  <Input
+                    value={ing.quantity}
+                    onChange={(e) => updateIngredient(idx, 'quantity', e.target.value)}
+                    placeholder="Qty"
+                    aria-label={`Ingredient ${idx + 1} quantity`}
+                    className="w-16 h-8 text-xs shrink-0"
+                  />
+                  <Input
+                    value={ing.unit}
+                    onChange={(e) => updateIngredient(idx, 'unit', e.target.value)}
+                    placeholder="Unit"
+                    aria-label={`Ingredient ${idx + 1} unit`}
+                    className="w-20 h-8 text-xs shrink-0"
+                  />
+                  <Input
+                    value={ing.name}
+                    onChange={(e) => updateIngredient(idx, 'name', e.target.value)}
+                    placeholder="Ingredient name *"
+                    aria-label={`Ingredient ${idx + 1} name`}
+                    className="flex-1 h-8 text-xs font-medium"
+                    required
+                  />
+                  <Input
+                    value={ing.preparationNote}
+                    onChange={(e) => updateIngredient(idx, 'preparationNote', e.target.value)}
+                    placeholder="Prep note (e.g. minced)"
+                    aria-label={`Ingredient ${idx + 1} preparation note`}
+                    className="w-36 h-8 text-xs"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeIngredient(idx)}
+                    aria-label={`Remove ingredient ${ing.name || idx + 1}`}
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+
+                {/* Mobile layout: Clean 2-line stacked layout to prevent cramped text & horizontal overflow */}
+                <div className="sm:hidden space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={ing.name}
+                      onChange={(e) => updateIngredient(idx, 'name', e.target.value)}
+                      placeholder="Ingredient name *"
+                      aria-label={`Ingredient ${idx + 1} name`}
+                      className="flex-1 h-9 text-xs font-medium"
+                      required
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeIngredient(idx)}
+                      aria-label={`Remove ingredient ${ing.name || idx + 1}`}
+                      className="h-9 w-9 text-muted-foreground hover:text-destructive shrink-0"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={ing.quantity}
+                      onChange={(e) => updateIngredient(idx, 'quantity', e.target.value)}
+                      placeholder="Qty (e.g. 2)"
+                      aria-label={`Ingredient ${idx + 1} quantity`}
+                      className="w-20 h-8 text-xs shrink-0"
+                    />
+                    <Input
+                      value={ing.unit}
+                      onChange={(e) => updateIngredient(idx, 'unit', e.target.value)}
+                      placeholder="Unit (cups)"
+                      aria-label={`Ingredient ${idx + 1} unit`}
+                      className="w-24 h-8 text-xs shrink-0"
+                    />
+                    <Input
+                      value={ing.preparationNote}
+                      onChange={(e) => updateIngredient(idx, 'preparationNote', e.target.value)}
+                      placeholder="Prep (e.g. chopped)"
+                      aria-label={`Ingredient ${idx + 1} preparation note`}
+                      className="flex-1 h-8 text-xs"
+                    />
+                  </div>
+                </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Instructions Editor */}
-        <div className="p-5 sm:p-6 rounded-2xl border border-border bg-card space-y-4">
-          <div className="flex items-center justify-between">
+        {/* Section 3: Instructions Editor */}
+        <div className="p-5 sm:p-6 rounded-2xl border border-border/80 bg-card space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-border/60">
             <div>
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                Instructions ({instructions.length} steps)
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                <Layers className="h-3.5 w-3.5 text-primary" />
+                <span>Cooking Instructions ({instructions.length} steps)</span>
               </h3>
-              <p className="text-xs text-muted-foreground">
-                Sequential steps and active timer durations in minutes.
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Sequential cooking steps with active countdown timers.
               </p>
             </div>
             <Button
@@ -464,42 +604,46 @@ export function RecipeAiPreview({
               variant="outline"
               size="sm"
               onClick={addInstruction}
-              className="h-8 gap-1 text-xs"
+              className="h-8 gap-1.5 text-xs font-medium min-h-[36px]"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>Add Step</span>
             </Button>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3.5">
             {instructions.map((inst, idx) => (
               <div
                 key={idx}
-                className="flex items-start gap-3 p-3 rounded-xl bg-muted/30 border border-border/50"
+                className="flex items-start gap-3 p-3.5 sm:p-4 rounded-xl bg-muted/40 border border-border/60 focus-within:border-primary/40 focus-within:bg-muted/60 transition-colors"
               >
-                <div className="h-6 w-6 rounded-full bg-primary/10 text-primary font-bold text-xs flex items-center justify-center shrink-0 mt-1">
+                <div className="h-6 w-6 rounded-full bg-primary/15 text-primary font-bold text-xs flex items-center justify-center shrink-0 mt-1 shadow-xs">
                   {idx + 1}
                 </div>
 
-                <div className="flex-1 space-y-2">
+                <div className="flex-1 space-y-2.5">
                   <Textarea
                     value={inst.instruction}
                     onChange={(e) => updateInstruction(idx, 'instruction', e.target.value)}
                     rows={2}
                     placeholder={`Step ${idx + 1} instructions…`}
-                    className="text-xs sm:text-sm resize-y"
+                    aria-label={`Step ${idx + 1} instructions`}
+                    className="text-xs sm:text-sm leading-relaxed resize-y"
+                    required
                   />
 
                   <div className="flex items-center gap-2">
-                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     <Input
                       type="number"
+                      min="0"
                       value={inst.timerDuration}
                       onChange={(e) => updateInstruction(idx, 'timerDuration', e.target.value)}
-                      placeholder="Timer (min)"
-                      className="w-28 h-7 text-xs"
+                      placeholder="Optional"
+                      aria-label={`Step ${idx + 1} timer duration in minutes`}
+                      className="w-24 h-7 text-xs"
                     />
-                    <span className="text-[11px] text-muted-foreground">min timer</span>
+                    <span className="text-[11px] text-muted-foreground">minute timer</span>
                   </div>
                 </div>
 
@@ -508,7 +652,8 @@ export function RecipeAiPreview({
                   variant="ghost"
                   size="icon"
                   onClick={() => removeInstruction(idx)}
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0 mt-1"
+                  aria-label={`Remove step ${idx + 1}`}
+                  className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0 mt-0.5"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
@@ -517,31 +662,40 @@ export function RecipeAiPreview({
           </div>
         </div>
 
-        {/* Tags */}
-        <div className="p-5 sm:p-6 rounded-2xl border border-border bg-card space-y-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Tags
-          </h3>
+        {/* Section 4: Tags */}
+        <div className="p-5 sm:p-6 rounded-2xl border border-border/80 bg-card space-y-3.5">
+          <div className="pb-2 border-b border-border/60">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Tags & Categorization
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Keywords to help organize and filter recipes in your cookbook.
+            </p>
+          </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5 min-h-[32px]">
             {tags.map((t) => (
               <span
                 key={t}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-muted border border-border/80"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted border border-border/80 text-foreground"
               >
                 #{t}
                 <button
                   type="button"
                   onClick={() => removeTag(t)}
-                  className="hover:text-destructive ml-0.5"
+                  aria-label={`Remove tag ${t}`}
+                  className="hover:text-destructive text-muted-foreground p-0.5"
                 >
                   ×
                 </button>
               </span>
             ))}
+            {tags.length === 0 && (
+              <span className="text-xs text-muted-foreground italic">No tags added yet</span>
+            )}
           </div>
 
-          <div className="flex items-center gap-2 max-w-xs">
+          <div className="flex items-center gap-2 max-w-sm pt-1">
             <Input
               value={tagInput}
               onChange={(e) => setTagInput(e.target.value)}
@@ -551,15 +705,16 @@ export function RecipeAiPreview({
                   addTag()
                 }
               }}
-              placeholder="Add tag (e.g. comfort-food)"
-              className="h-8 text-xs"
+              placeholder="Add tag (e.g. comfort-food, quick)"
+              aria-label="Add a tag"
+              className="h-9 text-xs sm:text-sm"
             />
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={addTag}
-              className="h-8 text-xs"
+              className="h-9 px-3 text-xs shrink-0"
             >
               Add
             </Button>
@@ -567,31 +722,69 @@ export function RecipeAiPreview({
         </div>
       </div>
 
-      {/* Bottom Floating Bar */}
-      <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onStartOver}
-          disabled={isSaving}
-          className="text-xs"
-        >
-          Discard
-        </Button>
-        <Button
-          type="button"
-          onClick={handleSave}
-          disabled={isSaving}
-          className="gap-2 font-semibold text-xs px-6"
-        >
-          {isSaving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-          <span>Save Recipe to Archive</span>
-        </Button>
+      {/* Bottom Sticky Action Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-6 border-t border-border">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+          <span>Unsaved preview — changes will not persist until saved</span>
+        </div>
+
+        <div className="flex items-center gap-2.5 self-end sm:self-auto">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setShowDiscardDialog(true)}
+            disabled={isSaving}
+            className="text-xs min-h-[40px] px-4"
+          >
+            Discard
+          </Button>
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving}
+            className="gap-2 font-semibold text-xs min-h-[40px] px-6 shadow-xs"
+          >
+            {isSaving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            <span>Save to Cookbook</span>
+          </Button>
+        </div>
       </div>
+
+      {/* Discard Confirmation Dialog */}
+      <Dialog open={showDiscardDialog} onOpenChange={setShowDiscardDialog}>
+        <DialogContent size="compact">
+          <DialogHeader>
+            <DialogTitle>Discard extracted recipe?</DialogTitle>
+            <DialogDescription>
+              Any adjustments or additions you made to this extracted recipe will be lost. You will return to the recipe import workspace.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowDiscardDialog(false)}
+            >
+              Keep Editing
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                setShowDiscardDialog(false)
+                onStartOver()
+              }}
+            >
+              Discard Recipe
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -1,6 +1,7 @@
 'use server'
 
 import { redirect } from 'next/navigation'
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { loginSchema, signupSchema, forgotPasswordSchema, updatePasswordSchema } from '@/lib/validators/auth'
 
@@ -200,4 +201,53 @@ export async function logout(): Promise<void> {
   const supabase = await createClient()
   await supabase.auth.signOut()
   redirect('/login')
+}
+
+export interface ProfileSettingsInput {
+  displayName?: string | null
+  measurementSystem?: 'metric' | 'imperial'
+  dietaryPreferences?: string[]
+}
+
+/**
+ * Handle culinary profile & preference updates for an authenticated user on /settings.
+ */
+export async function updateProfileSettingsAction(
+  updates: ProfileSettingsInput
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { error: 'You must be signed in to update settings.' }
+  }
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({
+      display_name: updates.displayName !== undefined ? updates.displayName?.trim() || null : undefined,
+      measurement_system: updates.measurementSystem,
+      dietary_preferences: updates.dietaryPreferences,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', user.id)
+
+  if (error) {
+    console.error('[auth/updateProfileSettingsAction]', { code: error.code, message: error.message })
+    return { error: 'Failed to save settings. Please try again.' }
+  }
+
+  // Synchronize display_name in auth user metadata if provided
+  if (updates.displayName !== undefined) {
+    await supabase.auth.updateUser({
+      data: { display_name: updates.displayName?.trim() || null },
+    })
+  }
+
+  revalidatePath('/settings')
+  revalidatePath('/')
+
+  return { success: true }
 }

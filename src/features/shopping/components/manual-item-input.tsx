@@ -39,7 +39,7 @@ export function ManualItemInput({ listId, onAdded }: ManualItemInputProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-1.5">
+    <form onSubmit={handleSubmit} className="space-y-1.5 flex-1 min-w-[240px]">
       <div className="flex items-center gap-2">
         <input
           ref={inputRef}
@@ -48,13 +48,13 @@ export function ManualItemInput({ listId, onAdded }: ManualItemInputProps) {
           onChange={(e) => setValue(e.target.value)}
           placeholder='Add item, e.g. "2 cups flour" or "eggs"'
           disabled={isPending}
-          className="flex-1 rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-60"
+          className="flex-1 rounded-xl border border-input bg-background/90 px-3.5 py-2 text-xs sm:text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:border-primary/60 transition-all disabled:opacity-60 shadow-2xs"
           aria-label="Add manual shopping item"
         />
         <button
           type="submit"
           disabled={isPending || !value.trim()}
-          className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40 active:scale-95 after:absolute after:-inset-1 after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="relative flex h-9.5 w-9.5 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-40 active:scale-95 after:absolute after:-inset-1.5 after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 shadow-2xs"
           aria-label="Add item"
         >
           {isPending ? (

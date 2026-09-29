@@ -46,5 +46,8 @@ export default defineConfig({
     url: BASE_URL,
     reuseExistingServer: true,
     timeout: 120000,
+    env: {
+      ENABLE_TEST_PREVIEWS: 'true',
+    },
   },
 })

@@ -15,7 +15,7 @@ interface StepTimerProps {
  * - Starts paused; user explicitly starts it.
  * - Does NOT block navigation — navigation just means the timer unmounts.
  * - Uses setInterval + useRef to avoid stale closures.
- * - Large tap targets for mobile cooking use.
+ * - Large tap targets for mobile cooking use (standing distance).
  */
 export function StepTimer({ durationSeconds, className }: StepTimerProps) {
   const [remaining, setRemaining] = useState(durationSeconds)
@@ -81,50 +81,81 @@ export function StepTimer({ durationSeconds, className }: StepTimerProps) {
   }
 
   const progress = durationSeconds > 0 ? ((durationSeconds - remaining) / durationSeconds) * 100 : 0
+  const isPaused = !running && !finished && remaining < durationSeconds
 
   return (
     <div
       className={cn(
-        'flex flex-col items-center gap-3 rounded-2xl border p-4 transition-colors',
+        'flex flex-col items-center gap-3.5 rounded-2xl border p-5 transition-all shadow-xs',
         finished
-          ? 'border-emerald-500/40 bg-emerald-500/10'
-          : 'border-primary/20 bg-primary/5',
+          ? 'border-emerald-500/50 bg-emerald-500/10'
+          : running
+            ? 'border-primary/40 bg-primary/5 ring-1 ring-primary/20'
+            : isPaused
+              ? 'border-amber-500/40 bg-amber-500/5'
+              : 'border-border/80 bg-card/60',
         className
       )}
     >
       {/* Progress ring / time display */}
-      <div className="relative flex h-20 w-20 items-center justify-center">
-        <svg className="absolute inset-0 -rotate-90" viewBox="0 0 80 80">
+      <div className="relative flex h-24 w-24 items-center justify-center">
+        <svg className="absolute inset-0 -rotate-90" viewBox="0 0 96 96">
           <circle
-            cx="40" cy="40" r="34"
+            cx="48"
+            cy="48"
+            r="40"
             fill="none"
-            strokeWidth="5"
-            className="stroke-muted"
+            strokeWidth="6"
+            className="stroke-muted/60"
           />
           <circle
-            cx="40" cy="40" r="34"
+            cx="48"
+            cy="48"
+            r="40"
             fill="none"
-            strokeWidth="5"
+            strokeWidth="6"
             strokeLinecap="round"
-            strokeDasharray={`${2 * Math.PI * 34}`}
-            strokeDashoffset={`${2 * Math.PI * 34 * (1 - progress / 100)}`}
+            strokeDasharray={`${2 * Math.PI * 40}`}
+            strokeDashoffset={`${2 * Math.PI * 40 * (1 - progress / 100)}`}
             className={cn(
               'transition-all duration-1000',
-              finished ? 'stroke-emerald-500' : 'stroke-primary'
+              finished
+                ? 'stroke-emerald-500'
+                : running
+                  ? 'stroke-primary'
+                  : 'stroke-amber-500'
             )}
           />
         </svg>
-        <span className={cn(
-          'text-lg font-bold tabular-nums',
-          finished ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'
-        )}>
-          {finished ? <Bell className="h-6 w-6" /> : formatTime(remaining)}
-        </span>
+
+        <div className="flex flex-col items-center justify-center text-center">
+          <span
+            className={cn(
+              'text-2xl font-bold font-mono tracking-tight tabular-nums',
+              finished
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : running
+                  ? 'text-primary'
+                  : 'text-foreground'
+            )}
+          >
+            {finished ? (
+              <Bell className="h-8 w-8 animate-bounce text-emerald-500" />
+            ) : (
+              formatTime(remaining)
+            )}
+          </span>
+          {isPaused && (
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+              Paused
+            </span>
+          )}
+        </div>
       </div>
 
       {finished && (
-        <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-          Time&apos;s up!
+        <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 animate-fade-in">
+          Time&apos;s up! Ready for the next action.
         </p>
       )}
 
@@ -133,7 +164,7 @@ export function StepTimer({ durationSeconds, className }: StepTimerProps) {
         <button
           type="button"
           onClick={reset}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background text-muted-foreground transition-colors hover:bg-muted active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="flex h-11 w-11 items-center justify-center rounded-xl border border-border/80 bg-background text-muted-foreground transition-all hover:bg-muted hover:text-foreground active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
           aria-label="Reset timer"
         >
           <RotateCcw className="h-4 w-4" />
@@ -143,14 +174,26 @@ export function StepTimer({ durationSeconds, className }: StepTimerProps) {
           type="button"
           onClick={running ? stop : start}
           className={cn(
-            'flex h-12 w-12 items-center justify-center rounded-full text-white transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+            'flex h-12 min-w-[56px] px-5 items-center justify-center gap-2 rounded-xl text-white font-medium transition-all active:scale-95 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
             finished
-              ? 'bg-emerald-500 hover:bg-emerald-600'
-              : 'bg-primary hover:bg-primary/90'
+              ? 'bg-emerald-600 hover:bg-emerald-700'
+              : running
+                ? 'bg-primary hover:bg-primary/90'
+                : 'bg-primary hover:bg-primary/90'
           )}
           aria-label={running ? 'Pause timer' : 'Start timer'}
         >
-          {running ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+          {running ? (
+            <>
+              <Pause className="h-4 w-4" />
+              <span className="text-xs font-semibold">Pause</span>
+            </>
+          ) : (
+            <>
+              <Play className="h-4 w-4" />
+              <span className="text-xs font-semibold">{isPaused ? 'Resume' : 'Start'}</span>
+            </>
+          )}
         </button>
       </div>
     </div>

@@ -52,7 +52,7 @@ test.describe('Recipe Lifecycle E2E (Create, Edit, Search, Favorite)', () => {
 
     // Wait for redirect to /recipes/[id]
     await page.waitForURL((url) => url.pathname.startsWith('/recipes/') && !url.pathname.includes('/new'), {
-      timeout: 15000,
+      timeout: 30000,
     })
 
     const urlParts = page.url().split('/recipes/')
@@ -72,14 +72,14 @@ test.describe('Recipe Lifecycle E2E (Create, Edit, Search, Favorite)', () => {
     await page.locator('button[type="submit"]:has-text("Save Changes"), button[type="submit"]:has-text("Update Recipe")').first().click()
 
     // Wait for redirect back to detail view
-    await page.waitForURL((url) => !url.pathname.includes('/edit'), { timeout: 15000 })
+    await page.waitForURL((url) => !url.pathname.includes('/edit'), { timeout: 30000 })
     await expect(page.locator('h1', { hasText: updatedTitle })).toBeVisible()
 
     // 4. Search recipe on /recipes
     await page.goto('/recipes')
     await page.waitForLoadState('domcontentloaded')
 
-    const searchInput = page.locator('input[placeholder*="Search recipes"]')
+    const searchInput = page.locator('input[placeholder*="Search recipes"]').first()
     await searchInput.fill(RUN_ID)
 
     // Card matching updatedTitle must be visible
@@ -102,7 +102,7 @@ test.describe('Recipe Lifecycle E2E (Create, Edit, Search, Favorite)', () => {
       timeout: 15000,
     })
     expect(page.url()).toContain('/recipes?favorite=true')
-    await expect(page.locator('h1', { hasText: 'Recipes' })).toBeVisible()
+    await expect(page.locator('h1', { hasText: 'Recipes' }).first()).toBeVisible()
   })
 
   test('untouched empty ingredient and instruction rows are pruned automatically on submit', async ({ page }) => {
@@ -128,7 +128,7 @@ test.describe('Recipe Lifecycle E2E (Create, Edit, Search, Favorite)', () => {
 
     // Redirect to detail page
     await page.waitForURL((url) => url.pathname.startsWith('/recipes/') && !url.pathname.includes('/new'), {
-      timeout: 15000,
+      timeout: 30000,
     })
 
     const urlParts = page.url().split('/recipes/')

@@ -9,6 +9,7 @@ interface EditRecipePageProps {
 
 export const metadata: Metadata = {
   title: 'Edit Recipe | Aurelia',
+  description: 'Refine ingredients, culinary steps, and timing in your personal cookbook archive.',
 }
 
 export default async function EditRecipePage({ params }: EditRecipePageProps) {
@@ -24,5 +25,9 @@ export default async function EditRecipePage({ params }: EditRecipePageProps) {
     redirect(`/recipes/${id}`)
   }
 
-  return <RecipeForm mode="edit" initialData={recipe} />
+  return (
+    <div className="max-w-4xl mx-auto">
+      <RecipeForm mode="edit" initialData={recipe} />
+    </div>
+  )
 }

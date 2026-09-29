@@ -95,17 +95,19 @@ export function AddToCollectionDialog({ recipeId, trigger }: AddToCollectionDial
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         {trigger || (
-          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+          <Button variant="outline" size="sm" className="h-8.5 gap-1.5 text-xs">
             <FolderPlus className="h-3.5 w-3.5" />
             <span>Add to Collection</span>
           </Button>
         )}
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-base font-semibold">Organize in Collections</DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
+      <DialogContent className="sm:max-w-md rounded-2xl border border-border shadow-dialog p-6">
+        <DialogHeader className="space-y-1.5">
+          <DialogTitle className="font-serif text-xl font-bold tracking-tight text-foreground">
+            Organize in Collections
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground leading-relaxed">
             Select collections to include or organize this recipe into.
           </DialogDescription>
         </DialogHeader>

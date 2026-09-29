@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import {
   Dialog,
@@ -13,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SafeImage } from '@/components/shared/safe-image'
 import {
   ShoppingCart,
   Check,
@@ -144,7 +144,7 @@ export function GenerateShoppingDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col rounded-2xl">
         <DialogHeader>
           <div className="flex items-center gap-2 text-primary">
             <Sparkles className="h-5 w-5" />
@@ -183,7 +183,7 @@ export function GenerateShoppingDialog({
                 variant="outline"
                 size="sm"
                 onClick={onClose}
-                className="text-xs"
+                className="h-9 px-3.5 text-xs rounded-xl font-medium border-border/80"
               >
                 Close
               </Button>
@@ -193,7 +193,7 @@ export function GenerateShoppingDialog({
                   onClose()
                   router.push(`/shopping?list=${successInfo.listId}`)
                 }}
-                className="text-xs gap-1.5"
+                className="h-9 px-4 text-xs gap-1.5 rounded-xl font-semibold shadow-2xs"
               >
                 <span>View Shopping List</span>
                 <ArrowRight className="h-3.5 w-3.5" />
@@ -206,7 +206,7 @@ export function GenerateShoppingDialog({
             className="flex-1 overflow-y-auto space-y-4 pr-1"
           >
             {/* Target List Selection */}
-            <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-3">
+            <div className="space-y-2 rounded-xl border border-border/70 bg-muted/30 p-3">
               <Label className="text-xs font-semibold text-foreground">
                 Target Shopping List
               </Label>
@@ -217,7 +217,7 @@ export function GenerateShoppingDialog({
                     type="button"
                     onClick={() => setListMode('existing')}
                     className={cn(
-                      'flex-1 py-1.5 px-3 rounded-lg border text-xs font-medium transition-all',
+                      'flex-1 py-1.5 px-3 rounded-lg border text-xs font-medium transition-all touch-target',
                       listMode === 'existing'
                         ? 'border-primary bg-primary/10 text-primary font-semibold'
                         : 'border-border/60 hover:border-border text-muted-foreground'
@@ -230,7 +230,7 @@ export function GenerateShoppingDialog({
                   type="button"
                   onClick={() => setListMode('new')}
                   className={cn(
-                    'flex-1 py-1.5 px-3 rounded-lg border text-xs font-medium transition-all flex items-center justify-center gap-1',
+                    'flex-1 py-1.5 px-3 rounded-lg border text-xs font-medium transition-all flex items-center justify-center gap-1 touch-target',
                     listMode === 'new'
                       ? 'border-primary bg-primary/10 text-primary font-semibold'
                       : 'border-border/60 hover:border-border text-muted-foreground'
@@ -246,7 +246,7 @@ export function GenerateShoppingDialog({
                   <select
                     value={selectedListId}
                     onChange={(e) => setSelectedListId(e.target.value)}
-                    className="w-full h-9 rounded-md border border-input bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="w-full h-9 rounded-xl border border-input bg-card px-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                   >
                     {existingLists.map((l) => (
                       <option key={l.id} value={l.id}>
@@ -261,7 +261,7 @@ export function GenerateShoppingDialog({
                     value={newListName}
                     onChange={(e) => setNewListName(e.target.value)}
                     placeholder="List name (e.g. Weekly Groceries)"
-                    className="h-9 text-xs"
+                    className="h-9 text-xs rounded-xl border-border/80"
                     required
                   />
                 </div>
@@ -288,7 +288,7 @@ export function GenerateShoppingDialog({
               </div>
 
               {recipeMeals.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border p-6 text-center">
+                <div className="rounded-2xl border border-dashed border-border/80 p-6 text-center bg-card/40">
                   <Utensils className="h-6 w-6 text-muted-foreground mx-auto mb-2 opacity-50" />
                   <p className="text-xs text-muted-foreground">
                     No recipe-based meals found in this week&apos;s plan.
@@ -311,7 +311,7 @@ export function GenerateShoppingDialog({
                         type="button"
                         onClick={() => toggleItem(item.id)}
                         className={cn(
-                          'w-full flex items-center justify-between gap-2.5 p-2 rounded-xl border text-left transition-all',
+                          'w-full flex items-center justify-between gap-2.5 p-2 rounded-xl border text-left transition-all touch-target',
                           isSelected
                             ? 'border-primary/50 bg-primary/5'
                             : 'border-border/60 hover:border-border bg-card'
@@ -333,7 +333,7 @@ export function GenerateShoppingDialog({
                           {/* Image */}
                           <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md bg-muted border border-border/50">
                             {image ? (
-                              <Image
+                              <SafeImage
                                 src={image}
                                 alt={title}
                                 fill
@@ -372,7 +372,7 @@ export function GenerateShoppingDialog({
                 size="sm"
                 onClick={onClose}
                 disabled={isPending}
-                className="h-8 text-xs"
+                className="h-9 px-3.5 text-xs rounded-xl font-medium border-border/80"
               >
                 Cancel
               </Button>
@@ -380,7 +380,7 @@ export function GenerateShoppingDialog({
                 type="submit"
                 size="sm"
                 disabled={isPending || recipeMeals.length === 0 || selectedIds.length === 0}
-                className="h-8 text-xs min-w-28 gap-1.5"
+                className="h-9 px-4 text-xs min-w-28 gap-1.5 rounded-xl font-semibold shadow-2xs"
               >
                 {isPending ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />

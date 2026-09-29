@@ -42,7 +42,7 @@ test.describe('Mobile Navigation E2E (375px Viewport)', () => {
     await expect(shoppingTab).toBeVisible()
     await shoppingTab.click()
     await page.waitForURL((url) => url.pathname === '/shopping', { timeout: 10000 })
-    await expect(page.locator('main h1', { hasText: 'Shopping Lists' })).toBeVisible()
+    await expect(page.locator('main h1', { hasText: 'Shopping' })).toBeVisible()
 
     // 7. Navigate back to Home dashboard tab
     await page.evaluate(() => {
@@ -52,6 +52,6 @@ test.describe('Mobile Navigation E2E (375px Viewport)', () => {
     await expect(homeTab).toBeVisible()
     await homeTab.click()
     await page.waitForURL((url) => url.pathname === '/', { timeout: 10000 })
-    await expect(page.locator('main').locator('text=Chef Alice').first()).toBeVisible()
+    await expect(page.locator('main').locator('text=Kitchen Dashboard').first()).toBeVisible()
   })
 })

@@ -35,27 +35,27 @@ export function DayColumn({
       data-day-short={day.dayShort}
       data-date={day.date}
       className={cn(
-        'flex flex-col rounded-xl border p-2 space-y-2 transition-colors shadow-2xs',
+        'flex flex-col rounded-2xl border p-2 sm:p-2.5 space-y-2.5 transition-all shadow-2xs',
         day.isToday
-          ? 'border-primary/80 ring-1 ring-primary/20 bg-card'
-          : 'border-border/60 bg-card/60 hover:border-border/80'
+          ? 'border-primary/50 bg-card ring-1 ring-primary/20 shadow-xs'
+          : 'border-border/80 bg-card/70 hover:border-border hover:bg-card'
       )}
     >
       {/* Day Header */}
-      <div className="flex items-center justify-between pb-1 border-b border-border/40">
+      <div className="flex items-center justify-between pb-1.5 border-b border-border/50">
         <div>
-          <div className="flex items-center gap-1.5">
-            <span className="font-serif font-bold text-sm sm:text-base text-foreground">
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-serif font-bold text-sm sm:text-base text-foreground tracking-tight">
               {day.dayShort}
             </span>
-            <span className="text-xs text-muted-foreground">
+            <span className="text-[11px] font-medium text-muted-foreground">
               {day.monthShort} {day.dayNumber}
             </span>
           </div>
         </div>
 
         {day.isToday && (
-          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary tracking-wide uppercase">
+          <span className="rounded-full bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 text-[10px] font-bold tracking-wider uppercase">
             Today
           </span>
         )}

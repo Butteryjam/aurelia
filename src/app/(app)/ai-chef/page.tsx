@@ -1,5 +1,8 @@
 import { getConversations, getConversationWithMessages } from '@/features/ai/queries/get-conversations'
 import { ChefChat } from '@/features/ai/components/chef-chat'
+import { PageHeader } from '@/components/shared/page-header'
+import { Badge } from '@/components/ui/badge'
+import { Sparkles } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import type { ConversationWithMessages } from '@/features/ai/types'
 
@@ -39,6 +42,19 @@ export default async function AIChefPage({ searchParams }: AIChefPageProps) {
 
   return (
     <div className="space-y-4">
+      <PageHeader
+        title="AI Chef"
+        description="Your private culinary intelligence, grounded in your personal recipes and kitchen pantry."
+        badge={
+          <Badge
+            variant="outline"
+            className="gap-1.5 border-primary/25 bg-primary/10 text-primary text-xs font-medium px-2.5 py-0.5 shadow-2xs"
+          >
+            <Sparkles className="h-3 w-3" />
+            <span>Culinary Archive Intelligence</span>
+          </Badge>
+        }
+      />
       <ChefChat
         initialConversation={initialConversation}
         focusedRecipeId={recipeId}
