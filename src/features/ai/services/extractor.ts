@@ -17,7 +17,156 @@ import {
   isTransientOrTimeoutError,
   resolveCandidateModels,
 } from './ai-resilience'
+import { parseManualItem } from '@/lib/utils/shopping-consolidator'
 import type { ExtractedRecipeData } from '../types'
+
+/**
+ * Normalizes raw LLM output into the shape expected by extractedRecipeSchema.
+ * Handles string-based or non-standard instructions/ingredients across LLM candidates.
+ */
+export function normalizeExtractedRecipe(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return raw
+  }
+
+  const recipe = { ...(raw as Record<string, unknown>) }
+
+  // 1. Ingredients normalization
+  if (Array.isArray(recipe.ingredients)) {
+    recipe.ingredients = recipe.ingredients.map((ing) => {
+      if (typeof ing === 'string') {
+        const trimmed = ing.trim()
+        const noteMatch = trimmed.match(/^(.*?)\s*\((.*?)\)$/)
+        let nameToParse = trimmed
+        let preparationNote: string | null = null
+
+        if (noteMatch) {
+          nameToParse = noteMatch[1].trim()
+          preparationNote = noteMatch[2].trim() || null
+        }
+
+        const parsed = parseManualItem(nameToParse)
+        return {
+          name: parsed.name || trimmed,
+          quantity: parsed.quantity,
+          unit: parsed.unit,
+          preparationNote,
+          isOptional: false,
+        }
+      }
+
+      if (ing && typeof ing === 'object') {
+        const ingObj = ing as Record<string, unknown>
+        const name =
+          typeof ingObj.name === 'string'
+            ? ingObj.name
+            : typeof ingObj.item === 'string'
+            ? ingObj.item
+            : typeof ingObj.ingredient === 'string'
+            ? ingObj.ingredient
+            : String(ingObj.name || ingObj.item || '')
+
+        const quantity =
+          ingObj.quantity !== undefined && ingObj.quantity !== null
+            ? String(ingObj.quantity)
+            : ingObj.amount !== undefined && ingObj.amount !== null
+            ? String(ingObj.amount)
+            : null
+
+        const unit =
+          typeof ingObj.unit === 'string'
+            ? ingObj.unit
+            : ingObj.unit !== undefined && ingObj.unit !== null
+            ? String(ingObj.unit)
+            : null
+
+        const preparationNote =
+          typeof ingObj.preparationNote === 'string'
+            ? ingObj.preparationNote
+            : typeof ingObj.note === 'string'
+            ? ingObj.note
+            : typeof ingObj.notes === 'string'
+            ? ingObj.notes
+            : null
+
+        return {
+          ...ingObj,
+          name: name.trim() || 'Ingredient',
+          quantity,
+          unit,
+          preparationNote,
+          isOptional: Boolean(ingObj.isOptional),
+        }
+      }
+
+      return ing
+    })
+  }
+
+  // 2. Instructions normalization
+  if (Array.isArray(recipe.instructions)) {
+    recipe.instructions = recipe.instructions.map((inst, idx) => {
+      if (typeof inst === 'string') {
+        return {
+          stepNumber: idx + 1,
+          instruction: inst.trim(),
+          timerDuration: null,
+        }
+      }
+
+      if (inst && typeof inst === 'object') {
+        const instObj = inst as Record<string, unknown>
+        const stepNum =
+          typeof instObj.stepNumber === 'number' && instObj.stepNumber > 0
+            ? instObj.stepNumber
+            : typeof instObj.step === 'number' && instObj.step > 0
+            ? instObj.step
+            : idx + 1
+
+        const instructionText =
+          typeof instObj.instruction === 'string' && instObj.instruction.trim().length > 0
+            ? instObj.instruction.trim()
+            : typeof instObj.text === 'string' && instObj.text.trim().length > 0
+            ? instObj.text.trim()
+            : typeof instObj.step === 'string' && instObj.step.trim().length > 0
+            ? instObj.step.trim()
+            : typeof instObj.description === 'string' && instObj.description.trim().length > 0
+            ? instObj.description.trim()
+            : typeof instObj.action === 'string' && instObj.action.trim().length > 0
+            ? instObj.action.trim()
+            : String(instObj.instruction || instObj.text || instObj.step || '').trim()
+
+        return {
+          ...instObj,
+          stepNumber: stepNum,
+          instruction: instructionText,
+          timerDuration:
+            typeof instObj.timerDuration === 'number'
+              ? instObj.timerDuration
+              : null,
+        }
+      }
+
+      return inst
+    })
+  }
+
+  // 3. Number fields normalization
+  const toIntOrNull = (val: unknown) => {
+    if (typeof val === 'number') return Number.isFinite(val) ? Math.round(val) : null
+    if (typeof val === 'string') {
+      const parsed = parseInt(val, 10)
+      return Number.isFinite(parsed) ? parsed : null
+    }
+    return null
+  }
+
+  if (recipe.prepTime !== undefined) recipe.prepTime = toIntOrNull(recipe.prepTime)
+  if (recipe.cookTime !== undefined) recipe.cookTime = toIntOrNull(recipe.cookTime)
+  if (recipe.servings !== undefined) recipe.servings = toIntOrNull(recipe.servings)
+
+  return recipe
+}
 
 /**
  * Extract structured recipe data from raw unstructured text.
@@ -103,7 +252,8 @@ export async function extractRecipeFromText(rawText: string): Promise<{
     }
 
     const parsedJson = JSON.parse(rawJson)
-    const validation = extractedRecipeSchema.safeParse(parsedJson)
+    const normalized = normalizeExtractedRecipe(parsedJson)
+    const validation = extractedRecipeSchema.safeParse(normalized)
 
     if (!validation.success) {
       console.error('AI recipe validation failed:', validation.error.issues)
@@ -225,7 +375,8 @@ export async function extractRecipeFromImage(
     }
 
     const parsedJson = JSON.parse(rawJson)
-    const validation = extractedRecipeSchema.safeParse(parsedJson)
+    const normalized = normalizeExtractedRecipe(parsedJson)
+    const validation = extractedRecipeSchema.safeParse(normalized)
 
     if (!validation.success) {
       console.error('AI image recipe validation failed:', validation.error.issues)

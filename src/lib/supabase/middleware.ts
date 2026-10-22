@@ -39,7 +39,10 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname === '/settings' &&
     request.nextUrl.searchParams.get('mode') === 'recovery'
 
+  const isApiRoute = request.nextUrl.pathname.startsWith('/api')
+
   const isPublicRoute =
+    isApiRoute ||
     isAuthRoute ||
     isRecoveryRoute ||
     request.nextUrl.pathname.startsWith('/auth/callback') ||

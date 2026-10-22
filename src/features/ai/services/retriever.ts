@@ -1,6 +1,7 @@
 import 'server-only'
 import { createClient } from '@/lib/supabase/server'
-import type { RecipeWithDetails } from '@/types/database'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database, RecipeWithDetails } from '@/types/database'
 import type { GroundedRecipeReference } from '../types'
 
 export interface RetrievedRecipeContext {
@@ -20,9 +21,10 @@ export interface RetrievedRecipeContext {
 export async function retrieveRecipesForAi(
   query: string,
   userId: string,
-  limit: number = 5
+  limit: number = 5,
+  customClient?: SupabaseClient<Database>
 ): Promise<{ recipes: RetrievedRecipeContext[]; references: GroundedRecipeReference[] }> {
-  const supabase = await createClient()
+  const supabase = customClient ?? (await createClient())
 
   // Clean query tokens for matching
   const cleaned = query.toLowerCase().replace(/[^a-z0-9\s]/g, ' ')
@@ -122,7 +124,8 @@ export async function retrieveRecipesForAi(
  */
 export async function getFocusedRecipeContext(
   recipeId: string,
-  userId: string
+  userId: string,
+  customClient?: SupabaseClient<Database>
 ): Promise<{
   id: string
   title: string
@@ -135,7 +138,7 @@ export async function getFocusedRecipeContext(
   notes: string | null
   reference: GroundedRecipeReference
 } | null> {
-  const supabase = await createClient()
+  const supabase = customClient ?? (await createClient())
 
   const { data, error } = await supabase
     .from('recipes')

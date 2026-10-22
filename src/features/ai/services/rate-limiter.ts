@@ -1,5 +1,7 @@
 import 'server-only'
 import { createClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
 
 interface RateLimitConfig {
   maxRequests: number
@@ -34,12 +36,13 @@ export interface RateLimitResult {
  * it returns allowed: false to prevent accidental bypass under degraded conditions.
  */
 export async function checkRateLimit(
-  action: 'extraction' | 'modification' | 'chat'
+  action: 'extraction' | 'modification' | 'chat',
+  customClient?: SupabaseClient<Database>
 ): Promise<RateLimitResult> {
   const config = LIMITS[action]
 
   try {
-    const supabase = await createClient()
+    const supabase = customClient ?? (await createClient())
 
     // Identity is strictly validated and derived from auth.uid() inside the database function
     const { data, error } = await supabase.rpc('check_ai_rate_limit', {

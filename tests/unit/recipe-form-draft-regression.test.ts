@@ -112,7 +112,7 @@ describe('RecipeForm Draft & Hydration Regression Tests', () => {
   })
 
   it('8. pending autosave timer is invalidated immediately on account switch', () => {
-    let pendingTimer: NodeJS.Timeout | null = null
+    let pendingTimer: ReturnType<typeof setTimeout> | null = null
     let writeExecuted = false
 
     // Simulate scheduling autosave for User A

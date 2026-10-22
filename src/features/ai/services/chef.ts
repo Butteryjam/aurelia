@@ -12,6 +12,8 @@ import {
   resolveCandidateModels,
 } from './ai-resilience'
 import type { GroundedRecipeReference } from '../types'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
 
 interface ChefConversationMessage {
   role: 'user' | 'assistant' | 'system'
@@ -23,6 +25,7 @@ interface GenerateChefResponseParams {
   recipeId?: string | null
   userMessage: string
   conversationHistory: ChefConversationMessage[]
+  customClient?: SupabaseClient<Database>
 }
 
 export interface ChefResponseResult {
@@ -37,7 +40,7 @@ export interface ChefResponseResult {
 export async function generateChefResponse(
   params: GenerateChefResponseParams
 ): Promise<{ data?: ChefResponseResult; error?: string }> {
-  const { userId, recipeId, userMessage, conversationHistory } = params
+  const { userId, recipeId, userMessage, conversationHistory, customClient } = params
 
   const ai = getAiConfig()
   if (!ai) {
@@ -62,12 +65,12 @@ export async function generateChefResponse(
     let references: GroundedRecipeReference[] = []
 
     if (recipeId) {
-      focusedRecipe = await getFocusedRecipeContext(recipeId, userId)
+      focusedRecipe = await getFocusedRecipeContext(recipeId, userId, customClient)
       if (focusedRecipe) {
         references = [focusedRecipe.reference]
       }
     } else {
-      const retrieval = await retrieveRecipesForAi(userMessage, userId, 6)
+      const retrieval = await retrieveRecipesForAi(userMessage, userId, 6, customClient)
       retrievedRecipes = retrieval.recipes
       references = retrieval.references
     }

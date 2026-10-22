@@ -7,6 +7,8 @@ import {
 import { modifiedRecipeResultSchema } from '../schemas/recipe-modification'
 import type { RecipeModificationInput, ModifiedRecipeResult } from '../types'
 import { getFocusedRecipeContext } from './retriever'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
 import {
   TOTAL_AI_BUDGET_MS,
   PRIMARY_TIMEOUT_MS,
@@ -160,7 +162,8 @@ export function normalizeModifiedRecipeOutput(raw: unknown): unknown {
  */
 export async function modifyRecipeWithAi(
   input: RecipeModificationInput,
-  userId: string
+  userId: string,
+  customClient?: SupabaseClient<Database>
 ): Promise<{
   data?: ModifiedRecipeResult
   error?: string
@@ -174,7 +177,7 @@ export async function modifyRecipeWithAi(
   }
 
   // Fetch recipe context to verify user ownership and get current recipe data
-  const context = await getFocusedRecipeContext(input.recipeId, userId)
+  const context = await getFocusedRecipeContext(input.recipeId, userId, customClient)
   if (!context) {
     return { error: 'Recipe not found or you do not have permission to modify it.' }
   }
