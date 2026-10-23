@@ -168,18 +168,141 @@ export function normalizeExtractedRecipe(raw: unknown): unknown {
   return recipe
 }
 
+export type ExtractionErrorCategory =
+  | 'quota_exhausted'
+  | 'provider_unavailable'
+  | 'timeout'
+  | 'invalid_input'
+  | 'parsing_failure'
+  | 'auth_failure'
+  | 'unexpected_error'
+
+export interface ExtractionResult<T = ExtractedRecipeData> {
+  data?: T
+  error?: string
+  errorCategory?: ExtractionErrorCategory
+  statusCode?: number
+  retryAfterSeconds?: number
+}
+
+/**
+ * Classifies server-side extraction errors into safe diagnostic categories.
+ * Never logs or exposes API keys, tokens, or raw user images.
+ */
+export function classifyExtractionException(
+  error: unknown,
+  mode: 'text' | 'image' = 'text'
+): {
+  error: string
+  errorCategory: ExtractionErrorCategory
+  statusCode: number
+  retryAfterSeconds?: number
+} {
+  const err = error as {
+    status?: number
+    statusCode?: number
+    name?: string
+    message?: string
+    code?: string | number
+  }
+
+  const status = err?.status ?? err?.statusCode
+  const message = (err?.message || '').toLowerCase()
+  const name = err?.name || ''
+  const code = String(err?.code || '')
+
+  const defaultErrorMessage =
+    mode === 'image'
+      ? 'Unable to analyze this recipe image right now. Please try again or paste the text.'
+      : 'Unable to process this recipe at the moment. Your recipe collection is safe.'
+
+  // 1. Quota / Rate limit (HTTP 429, RESOURCE_EXHAUSTED)
+  if (
+    status === 429 ||
+    message.includes('quota') ||
+    message.includes('resource_exhausted') ||
+    message.includes('rate limit')
+  ) {
+    console.warn(`[${mode === 'image' ? 'Image ' : ''}Extraction] Safe error category: quota_exhausted (HTTP 429)`)
+    return {
+      error: defaultErrorMessage,
+      errorCategory: 'quota_exhausted',
+      statusCode: 429,
+      retryAfterSeconds: 60,
+    }
+  }
+
+  // 2. Timeout (HTTP 408, 504, client connection timeouts)
+  if (
+    status === 408 ||
+    status === 504 ||
+    name === 'APIConnectionTimeoutError' ||
+    name === 'TimeoutError' ||
+    name === 'AbortError' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ESOCKETTIMEDOUT' ||
+    message.includes('timeout') ||
+    message.includes('timed out')
+  ) {
+    console.warn(`[${mode === 'image' ? 'Image ' : ''}Extraction] Safe error category: timeout`)
+    return {
+      error: defaultErrorMessage,
+      errorCategory: 'timeout',
+      statusCode: 504,
+    }
+  }
+
+  // 3. Provider Unavailability (HTTP 503, 502, high demand, UNAVAILABLE)
+  if (
+    status === 503 ||
+    status === 502 ||
+    message.includes('high demand') ||
+    message.includes('unavailable') ||
+    message.includes('bad gateway')
+  ) {
+    console.warn(`[${mode === 'image' ? 'Image ' : ''}Extraction] Safe error category: provider_unavailable`)
+    return {
+      error: defaultErrorMessage,
+      errorCategory: 'provider_unavailable',
+      statusCode: 503,
+    }
+  }
+
+  // 4. Invalid input / image payload issues (HTTP 400)
+  if (
+    status === 400 ||
+    message.includes('invalid') ||
+    message.includes('unsupported image') ||
+    message.includes('corrupt')
+  ) {
+    console.warn(`[${mode === 'image' ? 'Image ' : ''}Extraction] Safe error category: invalid_input (HTTP 400)`)
+    return {
+      error: defaultErrorMessage,
+      errorCategory: 'invalid_input',
+      statusCode: 400,
+    }
+  }
+
+  // 5. Default Unexpected Server Error (HTTP 500)
+  console.error(`[${mode === 'image' ? 'Image ' : ''}Extraction] Safe error category: unexpected_error`)
+  return {
+    error: defaultErrorMessage,
+    errorCategory: 'unexpected_error',
+    statusCode: 500,
+  }
+}
+
 /**
  * Extract structured recipe data from raw unstructured text.
  */
-export async function extractRecipeFromText(rawText: string): Promise<{
-  data?: ExtractedRecipeData
-  error?: string
-}> {
+export async function extractRecipeFromText(rawText: string): Promise<ExtractionResult> {
   const ai = getAiConfig()
   if (!ai) {
     return {
       error:
-        'AI Chef is temporarily unavailable. Please configure your AI API key in your environment.',
+        'AI service is temporarily unavailable. Please configure your AI API key in your environment.',
+      errorCategory: 'provider_unavailable',
+      statusCode: 503,
     }
   }
 
@@ -248,27 +371,42 @@ export async function extractRecipeFromText(rawText: string): Promise<{
 
     const rawJson = response.choices[0]?.message?.content
     if (!rawJson) {
-      return { error: 'The AI model returned an empty response. Please try again.' }
+      console.warn('[Extraction] Safe error category: parsing_failure (empty response)')
+      return {
+        error: 'The AI model returned an empty response. Please try again.',
+        errorCategory: 'parsing_failure',
+        statusCode: 422,
+      }
     }
 
-    const parsedJson = JSON.parse(rawJson)
+    let parsedJson: unknown
+    try {
+      parsedJson = JSON.parse(rawJson)
+    } catch {
+      console.warn('[Extraction] Safe error category: parsing_failure (malformed JSON)')
+      return {
+        error: 'Could not interpret the recipe format returned by the AI service. Please try again.',
+        errorCategory: 'parsing_failure',
+        statusCode: 422,
+      }
+    }
+
     const normalized = normalizeExtractedRecipe(parsedJson)
     const validation = extractedRecipeSchema.safeParse(normalized)
 
     if (!validation.success) {
-      console.error('AI recipe validation failed:', validation.error.issues)
+      console.warn('[Extraction] Safe error category: parsing_failure (schema mismatch)')
       return {
         error:
           'Could not fully interpret this recipe format. Please try adding more detail or check the text.',
+        errorCategory: 'parsing_failure',
+        statusCode: 422,
       }
     }
 
     return { data: validation.data }
   } catch (error) {
-    console.error('Error in extractRecipeFromText:', error)
-    return {
-      error: 'Unable to process this recipe at the moment. Your recipe collection is safe.',
-    }
+    return classifyExtractionException(error, 'text')
   }
 }
 
@@ -278,15 +416,14 @@ export async function extractRecipeFromText(rawText: string): Promise<{
 export async function extractRecipeFromImage(
   base64Data: string,
   mimeType: string = 'image/jpeg'
-): Promise<{
-  data?: ExtractedRecipeData
-  error?: string
-}> {
+): Promise<ExtractionResult> {
   const ai = getAiConfig()
   if (!ai) {
     return {
       error:
-        'AI Chef is temporarily unavailable. Please configure your AI API key in your environment.',
+        'AI service is temporarily unavailable. Please configure your AI API key in your environment.',
+      errorCategory: 'provider_unavailable',
+      statusCode: 503,
     }
   }
 
@@ -371,26 +508,41 @@ export async function extractRecipeFromImage(
 
     const rawJson = response.choices[0]?.message?.content
     if (!rawJson) {
-      return { error: 'The AI model returned an empty response from the image. Please try again.' }
+      console.warn('[Image Extraction] Safe error category: parsing_failure (empty response)')
+      return {
+        error: 'The AI model returned an empty response from the image. Please try again.',
+        errorCategory: 'parsing_failure',
+        statusCode: 422,
+      }
     }
 
-    const parsedJson = JSON.parse(rawJson)
+    let parsedJson: unknown
+    try {
+      parsedJson = JSON.parse(rawJson)
+    } catch {
+      console.warn('[Image Extraction] Safe error category: parsing_failure (malformed JSON)')
+      return {
+        error: 'Could not interpret the recipe format returned by the AI service. Please try again.',
+        errorCategory: 'parsing_failure',
+        statusCode: 422,
+      }
+    }
+
     const normalized = normalizeExtractedRecipe(parsedJson)
     const validation = extractedRecipeSchema.safeParse(normalized)
 
     if (!validation.success) {
-      console.error('AI image recipe validation failed:', validation.error.issues)
+      console.warn('[Image Extraction] Safe error category: parsing_failure (schema mismatch)')
       return {
         error:
           'Could not clearly read recipe instructions or ingredients from this image. Please ensure good lighting and legible text.',
+        errorCategory: 'parsing_failure',
+        statusCode: 422,
       }
     }
 
     return { data: validation.data }
   } catch (error) {
-    console.error('Error in extractRecipeFromImage:', error)
-    return {
-      error: 'Unable to analyze this recipe image right now. Please try again or paste the text.',
-    }
+    return classifyExtractionException(error, 'image')
   }
 }
