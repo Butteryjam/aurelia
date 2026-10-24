@@ -13,6 +13,8 @@ import {
   GEMINI_STABLE_FALLBACK_MODELS,
   GEMINI_EXTRACTION_FALLBACK_MODELS,
   isTransientOrTimeoutError,
+  isQuotaExhaustedError,
+  detectQuotaScope,
   resolveCandidateModels,
   resolveExtractionCandidateModels,
 } from '@/features/ai/services/ai-resilience'
@@ -726,6 +728,296 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
       expect(recordedAttempts).toEqual(['gemini-3.6-flash'])
       expect(result.data).toBeUndefined()
       expect(result.error).toBe('Unable to analyze this recipe image right now. Please try again or paste the text.')
+    })
+  })
+
+  describe('Fine-Grained Quota Scope & Model-Specific vs Project-Wide Fallback Suite', () => {
+    describe('detectQuotaScope and error categorization', () => {
+      it('identifies model-specific quota via ErrorInfo metadata.quota_limit containing PerModel', () => {
+        const error = {
+          status: 429,
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+              metadata: {
+                quota_limit: 'GenerateContentRequestsPerMinutePerProjectPerRegionPerModel',
+                quota_metric:
+                  'generativelanguage.googleapis.com/generate_content_requests_per_minute_per_region_per_model',
+              },
+            },
+          ],
+        }
+        expect(detectQuotaScope(error, 'gemini-3.5-flash-lite')).toBe('model_specific')
+      })
+
+      it('identifies model-specific quota via QuotaFailure violations with models/ prefix', () => {
+        const error = {
+          status: 429,
+          error: {
+            details: [
+              {
+                '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                violations: [
+                  {
+                    subject: 'models/gemini-3.5-flash-lite',
+                    description:
+                      'Quota exceeded for quota metric GenerateContentRequestsPerMinutePerProjectPerRegionPerModel',
+                  },
+                ],
+              },
+            ],
+          },
+        }
+        expect(detectQuotaScope(error, 'gemini-3.5-flash-lite')).toBe('model_specific')
+      })
+
+      it('identifies model-specific quota via message mentioning per-model rate limit or model name', () => {
+        const error = new Error("Rate limit exceeded for model 'gemini-3.5-flash-lite'")
+        ;(error as any).status = 429
+        expect(detectQuotaScope(error, 'gemini-3.5-flash-lite')).toBe('model_specific')
+      })
+
+      it('identifies project-wide quota via ErrorInfo metadata.quota_limit with PerProject', () => {
+        const error = {
+          status: 429,
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+              metadata: {
+                quota_limit: 'GenerateContentRequestsPerDayPerProject',
+                quota_metric:
+                  'generativelanguage.googleapis.com/generate_content_requests_per_day',
+              },
+            },
+          ],
+        }
+        expect(detectQuotaScope(error, 'gemini-3.5-flash-lite')).toBe('project_wide')
+      })
+
+      it('identifies project-wide quota via message mentioning daily quota exceeded for project', () => {
+        const error = new Error('Resource has been exhausted: daily quota exceeded for project 12345')
+        ;(error as any).status = 429
+        expect(detectQuotaScope(error, 'gemini-3.5-flash-lite')).toBe('project_wide')
+      })
+
+      it('returns unknown for generic 429 without specifics', () => {
+        const error = new Error('Resource has been exhausted (e.g. check quota).')
+        ;(error as any).status = 429
+        expect(detectQuotaScope(error, 'gemini-3.5-flash-lite')).toBe('unknown')
+      })
+    })
+
+    describe('Text Extraction: gemini-3.5-flash-lite quota fallback behavior', () => {
+      it('gemini-3.5-flash-lite model-specific 429 -> safely tries gemini-3.6-flash at most once and succeeds', async () => {
+        process.env.GEMINI_EXTRACTION_MODEL = 'gemini-3.5-flash-lite'
+        const recordedAttempts: string[] = []
+
+        const modelSpecific429 = new Error("Resource exhausted for model 'gemini-3.5-flash-lite'")
+        ;(modelSpecific429 as any).status = 429
+        ;(modelSpecific429 as any).details = [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            metadata: {
+              quota_limit: 'GenerateContentRequestsPerMinutePerProjectPerRegionPerModel',
+            },
+          },
+          {
+            '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+            retryDelay: '20s',
+          },
+        ]
+
+        const createMock = vi.fn().mockImplementation(async ({ model }) => {
+          recordedAttempts.push(model)
+          if (model === 'gemini-3.5-flash-lite') {
+            throw modelSpecific429
+          }
+          return {
+            choices: [{ message: { content: MOCK_VALID_RECIPE_JSON } }],
+          }
+        })
+
+        vi.spyOn(openaiClientModule, 'getAiConfig').mockReturnValue({
+          provider: 'gemini',
+          model: 'gemini-3.6-flash',
+          client: { chat: { completions: { create: createMock } } } as any,
+        })
+
+        const result = await extractRecipeFromText('Sample raw recipe text...')
+
+        expect(recordedAttempts).toEqual(['gemini-3.5-flash-lite', 'gemini-3.6-flash'])
+        expect(result.error).toBeUndefined()
+        expect(result.data?.title).toBe("Grandma's Rustic Tuscan White Bean Soup")
+        expect(result.usedModel).toBe('gemini-3.6-flash')
+      })
+
+      it('gemini-3.5-flash-lite model-specific 429 -> second model also 429 -> halts after at most once, does NOT try 3rd model', async () => {
+        process.env.GEMINI_EXTRACTION_MODEL = 'gemini-3.5-flash-lite'
+        const recordedAttempts: string[] = []
+
+        const errFlashLite = new Error("Resource exhausted for model 'gemini-3.5-flash-lite'")
+        ;(errFlashLite as any).status = 429
+        ;(errFlashLite as any).details = [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            metadata: {
+              quota_limit: 'GenerateContentRequestsPerMinutePerProjectPerRegionPerModel',
+            },
+          },
+          {
+            '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+            retryDelay: '25s',
+          },
+        ]
+
+        const errFlash36 = new Error("Resource exhausted for model 'gemini-3.6-flash'")
+        ;(errFlash36 as any).status = 429
+        ;(errFlash36 as any).details = [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            metadata: {
+              quota_limit: 'GenerateContentRequestsPerMinutePerProjectPerRegionPerModel',
+            },
+          },
+          {
+            '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+            retryDelay: '30s',
+          },
+        ]
+
+        const createMock = vi.fn().mockImplementation(async ({ model }) => {
+          recordedAttempts.push(model)
+          if (model === 'gemini-3.5-flash-lite') throw errFlashLite
+          if (model === 'gemini-3.6-flash') throw errFlash36
+          return { choices: [{ message: { content: MOCK_VALID_RECIPE_JSON } }] }
+        })
+
+        vi.spyOn(openaiClientModule, 'getAiConfig').mockReturnValue({
+          provider: 'gemini',
+          model: 'gemini-3.6-flash',
+          client: { chat: { completions: { create: createMock } } } as any,
+        })
+
+        const result = await extractRecipeFromText('Sample raw recipe text...')
+
+        // Halts after at most 1 quota fallback (never tries gemini-3.5-flash)
+        expect(recordedAttempts).toEqual(['gemini-3.5-flash-lite', 'gemini-3.6-flash'])
+        expect(result.data).toBeUndefined()
+        expect(result.errorCategory).toBe('quota_exhausted')
+        expect(result.statusCode).toBe(429)
+        expect(result.retryAfterSeconds).toBe(30)
+      })
+
+      it('gemini-3.5-flash-lite project-wide 429 -> halts immediately with 0 retries', async () => {
+        process.env.GEMINI_EXTRACTION_MODEL = 'gemini-3.5-flash-lite'
+        const recordedAttempts: string[] = []
+
+        const projectWide429 = new Error('Daily request quota exceeded for project')
+        ;(projectWide429 as any).status = 429
+        ;(projectWide429 as any).details = [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            metadata: {
+              quota_limit: 'GenerateContentRequestsPerDayPerProject',
+            },
+          },
+          {
+            '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+            retryDelay: '120s',
+          },
+        ]
+
+        const createMock = vi.fn().mockImplementation(async ({ model }) => {
+          recordedAttempts.push(model)
+          throw projectWide429
+        })
+
+        vi.spyOn(openaiClientModule, 'getAiConfig').mockReturnValue({
+          provider: 'gemini',
+          model: 'gemini-3.6-flash',
+          client: { chat: { completions: { create: createMock } } } as any,
+        })
+
+        const result = await extractRecipeFromText('Sample raw recipe text...')
+
+        // Project-wide quota halts immediately on first candidate
+        expect(recordedAttempts).toEqual(['gemini-3.5-flash-lite'])
+        expect(result.data).toBeUndefined()
+        expect(result.errorCategory).toBe('quota_exhausted')
+        expect(result.statusCode).toBe(429)
+        expect(result.retryAfterSeconds).toBe(120)
+      })
+    })
+
+    describe('Image Extraction: gemini-3.5-flash-lite quota fallback behavior', () => {
+      it('gemini-3.5-flash-lite image model-specific 429 -> tries next eligible model once and succeeds', async () => {
+        process.env.GEMINI_EXTRACTION_MODEL = 'gemini-3.5-flash-lite'
+        const recordedAttempts: string[] = []
+
+        const modelSpecific429 = new Error("Resource exhausted for model 'gemini-3.5-flash-lite'")
+        ;(modelSpecific429 as any).status = 429
+        ;(modelSpecific429 as any).details = [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            metadata: {
+              quota_limit: 'GenerateContentRequestsPerMinutePerProjectPerRegionPerModel',
+            },
+          },
+        ]
+
+        const createMock = vi.fn().mockImplementation(async ({ model }) => {
+          recordedAttempts.push(model)
+          if (model === 'gemini-3.5-flash-lite') throw modelSpecific429
+          return { choices: [{ message: { content: MOCK_VALID_RECIPE_JSON } }] }
+        })
+
+        vi.spyOn(openaiClientModule, 'getAiConfig').mockReturnValue({
+          provider: 'gemini',
+          model: 'gemini-3.6-flash',
+          client: { chat: { completions: { create: createMock } } } as any,
+        })
+
+        const result = await extractRecipeFromImage('data:image/jpeg;base64,ZmFrZWltYWdlZGF0YQ==')
+
+        expect(recordedAttempts).toEqual(['gemini-3.5-flash-lite', 'gemini-3.6-flash'])
+        expect(result.error).toBeUndefined()
+        expect(result.data?.title).toBe("Grandma's Rustic Tuscan White Bean Soup")
+        expect(result.usedModel).toBe('gemini-3.6-flash')
+      })
+
+      it('gemini-3.5-flash-lite image project-wide 429 -> halts immediately with 0 retries', async () => {
+        process.env.GEMINI_EXTRACTION_MODEL = 'gemini-3.5-flash-lite'
+        const recordedAttempts: string[] = []
+
+        const projectWide429 = new Error('Daily quota exceeded for project')
+        ;(projectWide429 as any).status = 429
+        ;(projectWide429 as any).details = [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            metadata: {
+              quota_limit: 'GenerateContentRequestsPerDayPerProject',
+            },
+          },
+        ]
+
+        const createMock = vi.fn().mockImplementation(async ({ model }) => {
+          recordedAttempts.push(model)
+          throw projectWide429
+        })
+
+        vi.spyOn(openaiClientModule, 'getAiConfig').mockReturnValue({
+          provider: 'gemini',
+          model: 'gemini-3.6-flash',
+          client: { chat: { completions: { create: createMock } } } as any,
+        })
+
+        const result = await extractRecipeFromImage('data:image/jpeg;base64,ZmFrZWltYWdlZGF0YQ==')
+
+        expect(recordedAttempts).toEqual(['gemini-3.5-flash-lite'])
+        expect(result.data).toBeUndefined()
+        expect(result.errorCategory).toBe('quota_exhausted')
+        expect(result.statusCode).toBe(429)
+      })
     })
   })
 })

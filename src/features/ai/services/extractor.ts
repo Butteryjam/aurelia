@@ -15,6 +15,8 @@ import {
   FALLBACK_TIMEOUT_MS,
   MIN_REMAINING_BUDGET_MS,
   isTransientOrTimeoutError,
+  isQuotaExhaustedError,
+  detectQuotaScope,
   resolveExtractionCandidateModels,
 } from './ai-resilience'
 import { parseManualItem } from '@/lib/utils/shopping-consolidator'
@@ -183,6 +185,7 @@ export interface ExtractionResult<T = ExtractedRecipeData> {
   errorCategory?: ExtractionErrorCategory
   statusCode?: number
   retryAfterSeconds?: number
+  usedModel?: string
 }
 
 /**
@@ -220,33 +223,48 @@ export function extractRetryAfterSeconds(error: unknown): number {
     const errorBody = Array.isArray(err.error)
       ? (err.error[0] as Record<string, unknown> | undefined)
       : (err.error as Record<string, unknown> | undefined)
-    const nestedError = errorBody?.error as Record<string, unknown> | undefined
-    const details = nestedError?.details || errorBody?.details
-    if (Array.isArray(details)) {
-      const retryInfo = details.find((d: unknown) => {
-        const item = d as Record<string, unknown> | undefined
-        return (
-          typeof item?.['@type'] === 'string' &&
-          item['@type'].includes('RetryInfo') &&
-          typeof item.retryDelay === 'string'
-        )
-      }) as { retryDelay?: string } | undefined
-      if (retryInfo?.retryDelay) {
-        const parsed = parseInt(retryInfo.retryDelay.replace(/s$/i, ''), 10)
-        if (!isNaN(parsed) && parsed > 0) return parsed
-      }
+    const rawError = (errorBody ?? err) as Record<string, unknown>
+    const nestedError = (rawError.error ?? rawError) as Record<string, unknown>
+    const details =
+      nestedError.details ||
+      rawError.details ||
+      err.details ||
+      (err.response as Record<string, unknown>)?.data
+
+    const detailsList = Array.isArray(details)
+      ? details
+      : Array.isArray((details as Record<string, unknown>)?.details)
+      ? ((details as Record<string, unknown>).details as Array<Record<string, unknown>>)
+      : []
+
+    const retryInfo = detailsList.find((d: unknown) => {
+      const item = d as Record<string, unknown> | undefined
+      return (
+        typeof item?.['@type'] === 'string' &&
+        item['@type'].includes('RetryInfo') &&
+        typeof item.retryDelay === 'string'
+      )
+    }) as { retryDelay?: string } | undefined
+
+    if (retryInfo?.retryDelay) {
+      const parsed = Math.ceil(parseFloat(retryInfo.retryDelay.replace(/s$/i, '')))
+      if (!isNaN(parsed) && parsed > 0) return parsed
     }
   } catch {
     // fallback
   }
 
   // 3. Check error message for patterns like "retry in 15h43m" or "retry in 60s"
-  if (typeof err.message === 'string') {
-    const secMatch = err.message.match(/retry in\s+(\d+)\s*s/i)
-    if (secMatch) {
-      const s = parseInt(secMatch[1], 10)
-      if (!isNaN(s) && s > 0) return s
-    }
+  const fullMessage = (
+    String(err.message || '') +
+    ' ' +
+    String((err.error as Record<string, unknown>)?.message || '')
+  )
+
+  const secMatch = fullMessage.match(/retry in\s+(\d+(?:\.\d+)?)\s*s/i)
+  if (secMatch) {
+    const s = Math.ceil(parseFloat(secMatch[1]))
+    if (!isNaN(s) && s > 0) return s
   }
 
   return 60
@@ -285,6 +303,7 @@ export function classifyExtractionException(
 
   // 1. Quota / Rate limit (HTTP 429, RESOURCE_EXHAUSTED)
   if (
+    isQuotaExhaustedError(error) ||
     status === 429 ||
     message.includes('quota') ||
     message.includes('resource_exhausted') ||
@@ -382,6 +401,8 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
 
     let response = null
     let lastError: unknown = null
+    let usedModel: string | undefined = undefined
+    let quotaRetriesUsed = 0
 
     for (let i = 0; i < candidateModels.length; i++) {
       const currentModel = candidateModels[i]
@@ -414,6 +435,8 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
             maxRetries: 0,
           }
         )
+        usedModel = currentModel
+        console.log(`[Extraction] Recipe extracted successfully using model: ${currentModel}`)
         break
       } catch (err: unknown) {
         lastError = err
@@ -421,6 +444,33 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
         const isLastModel = i === candidateModels.length - 1
 
         if (isEligible && !isLastModel) {
+          const isQuota = isQuotaExhaustedError(err)
+
+          if (isQuota) {
+            const quotaScope = detectQuotaScope(err, currentModel)
+
+            if (quotaScope === 'project_wide') {
+              console.warn(
+                `[Extraction] Model ${currentModel} encountered project-wide quota exhaustion. Halting candidate failover to prevent wasted requests.`
+              )
+              throw err
+            }
+
+            if (quotaRetriesUsed >= 1) {
+              console.warn(
+                `[Extraction] Model ${currentModel} encountered quota exhaustion and 1 quota failover was already used. Halting further quota retries.`
+              )
+              throw err
+            }
+
+            quotaRetriesUsed++
+            const nextModel = candidateModels[i + 1]
+            console.warn(
+              `[Extraction] Model ${currentModel} encountered model-specific quota exhaustion (HTTP 429). Attempting next eligible model (${nextModel}) at most once...`
+            )
+            continue
+          }
+
           const status =
             (err as { status?: number; statusCode?: number })?.status ??
             (err as { status?: number; statusCode?: number })?.statusCode
@@ -474,7 +524,7 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
       }
     }
 
-    return { data: validation.data }
+    return { data: validation.data, usedModel }
   } catch (error) {
     return classifyExtractionException(error, 'text')
   }
@@ -507,6 +557,8 @@ export async function extractRecipeFromImage(
 
     let response = null
     let lastError: unknown = null
+    let usedModel: string | undefined = undefined
+    let quotaRetriesUsed = 0
 
     for (let i = 0; i < candidateModels.length; i++) {
       const currentModel = candidateModels[i]
@@ -551,6 +603,8 @@ export async function extractRecipeFromImage(
             maxRetries: 0,
           }
         )
+        usedModel = currentModel
+        console.log(`[Image Extraction] Recipe image extracted successfully using model: ${currentModel}`)
         break
       } catch (err: unknown) {
         lastError = err
@@ -558,6 +612,33 @@ export async function extractRecipeFromImage(
         const isLastModel = i === candidateModels.length - 1
 
         if (isEligible && !isLastModel) {
+          const isQuota = isQuotaExhaustedError(err)
+
+          if (isQuota) {
+            const quotaScope = detectQuotaScope(err, currentModel)
+
+            if (quotaScope === 'project_wide') {
+              console.warn(
+                `[Image Extraction] Model ${currentModel} encountered project-wide quota exhaustion. Halting candidate failover to prevent wasted requests.`
+              )
+              throw err
+            }
+
+            if (quotaRetriesUsed >= 1) {
+              console.warn(
+                `[Image Extraction] Model ${currentModel} encountered quota exhaustion and 1 quota failover was already used. Halting further quota retries.`
+              )
+              throw err
+            }
+
+            quotaRetriesUsed++
+            const nextModel = candidateModels[i + 1]
+            console.warn(
+              `[Image Extraction] Model ${currentModel} encountered model-specific quota exhaustion (HTTP 429). Attempting next eligible model (${nextModel}) at most once...`
+            )
+            continue
+          }
+
           const status =
             (err as { status?: number; statusCode?: number })?.status ??
             (err as { status?: number; statusCode?: number })?.statusCode
@@ -611,7 +692,7 @@ export async function extractRecipeFromImage(
       }
     }
 
-    return { data: validation.data }
+    return { data: validation.data, usedModel }
   } catch (error) {
     return classifyExtractionException(error, 'image')
   }
