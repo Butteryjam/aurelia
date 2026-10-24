@@ -109,3 +109,56 @@ export function isAiConfigured(): boolean {
 }
 
 export const isOpenAIConfigured = isAiConfigured
+
+export interface OpenRouterConfig {
+  client: OpenAI
+  model: string
+}
+
+let cachedOpenRouterConfig: { key: string; config: OpenRouterConfig } | null = null
+
+export const DEFAULT_OPENROUTER_EXTRACTION_MODEL = 'openai/gpt-4o-mini'
+
+/**
+ * Returns an OpenAI-compatible client configured for OpenRouter.
+ * Uses https://openrouter.ai/api/v1 with server-only OPENROUTER_API_KEY.
+ */
+export function getOpenRouterConfig(): OpenRouterConfig | null {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim()
+  if (!apiKey || apiKey === '' || apiKey === 'your-openrouter-api-key') {
+    return null
+  }
+
+  const model =
+    process.env.OPENROUTER_EXTRACTION_MODEL?.trim() ||
+    DEFAULT_OPENROUTER_EXTRACTION_MODEL
+
+  const cacheKey = `${apiKey}:${model}`
+  if (cachedOpenRouterConfig?.key === cacheKey) {
+    return cachedOpenRouterConfig.config
+  }
+
+  const client = new OpenAI({
+    apiKey,
+    baseURL: 'https://openrouter.ai/api/v1',
+    defaultHeaders: {
+      'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://aurelia-gamma-one.vercel.app',
+      'X-Title': 'Aurelia Recipe Vault',
+    },
+    maxRetries: 0,
+    timeout: 45000,
+  })
+
+  cachedOpenRouterConfig = {
+    key: cacheKey,
+    config: { client, model },
+  }
+  return cachedOpenRouterConfig.config
+}
+
+/**
+ * Check if OpenRouter is configured with a valid key.
+ */
+export function isOpenRouterConfigured(): boolean {
+  return getOpenRouterConfig() !== null
+}

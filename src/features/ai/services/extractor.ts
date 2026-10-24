@@ -1,5 +1,5 @@
 import 'server-only'
-import { getAiConfig } from './openai-client'
+import { getAiConfig, getOpenRouterConfig } from './openai-client'
 import {
   RECIPE_EXTRACTION_SYSTEM_PROMPT,
   buildRecipeExtractionUserPrompt,
@@ -186,6 +186,7 @@ export interface ExtractionResult<T = ExtractedRecipeData> {
   statusCode?: number
   retryAfterSeconds?: number
   usedModel?: string
+  provider?: 'gemini' | 'openrouter' | 'openai'
 }
 
 /**
@@ -402,6 +403,7 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
     let response = null
     let lastError: unknown = null
     let usedModel: string | undefined = undefined
+    let usedProvider: 'gemini' | 'openrouter' | 'openai' = ai.provider
     let quotaRetriesUsed = 0
 
     for (let i = 0; i < candidateModels.length; i++) {
@@ -436,6 +438,7 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
           }
         )
         usedModel = currentModel
+        usedProvider = ai.provider
         console.log(`[Extraction] Recipe extracted successfully using model: ${currentModel}`)
         break
       } catch (err: unknown) {
@@ -443,7 +446,7 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
         const isEligible = isTransientOrTimeoutError(err)
         const isLastModel = i === candidateModels.length - 1
 
-        if (isEligible && !isLastModel) {
+        if (isEligible) {
           const isQuota = isQuotaExhaustedError(err)
 
           if (isQuota) {
@@ -453,35 +456,91 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
               console.warn(
                 `[Extraction] Model ${currentModel} encountered project-wide quota exhaustion. Halting candidate failover to prevent wasted requests.`
               )
-              throw err
+              break
             }
 
             if (quotaRetriesUsed >= 1) {
               console.warn(
                 `[Extraction] Model ${currentModel} encountered quota exhaustion and 1 quota failover was already used. Halting further quota retries.`
               )
-              throw err
+              break
             }
 
-            quotaRetriesUsed++
-            const nextModel = candidateModels[i + 1]
+            if (!isLastModel) {
+              quotaRetriesUsed++
+              const nextModel = candidateModels[i + 1]
+              console.warn(
+                `[Extraction] Model ${currentModel} encountered model-specific quota exhaustion (HTTP 429). Attempting next eligible model (${nextModel}) at most once...`
+              )
+              continue
+            }
+
+            break
+          }
+
+          if (!isLastModel) {
+            const status =
+              (err as { status?: number; statusCode?: number })?.status ??
+              (err as { status?: number; statusCode?: number })?.statusCode
+            const errorLabel = status ? `HTTP ${status}` : (err as Error)?.name || 'Timeout'
             console.warn(
-              `[Extraction] Model ${currentModel} encountered model-specific quota exhaustion (HTTP 429). Attempting next eligible model (${nextModel}) at most once...`
+              `[Extraction] Model ${currentModel} encountered transient failure (${errorLabel}) within ${attemptTimeoutMs}ms attempt budget. Failing over to next candidate...`
             )
             continue
           }
 
-          const status =
-            (err as { status?: number; statusCode?: number })?.status ??
-            (err as { status?: number; statusCode?: number })?.statusCode
-          const errorLabel = status ? `HTTP ${status}` : (err as Error)?.name || 'Timeout'
-          console.warn(
-            `[Extraction] Model ${currentModel} encountered transient failure (${errorLabel}) within ${attemptTimeoutMs}ms attempt budget. Failing over to next candidate...`
-          )
-          continue
+          break
         }
 
+        // Non-transient / client error (e.g. 400 Bad Request) - do not failover
         throw err
+      }
+    }
+
+    // If primary provider candidates failed with retryable error, attempt cross-provider fallback via OpenRouter
+    if (!response) {
+      const openRouter = getOpenRouterConfig()
+      const remainingBudget = aiDeadline - Date.now()
+      const isRetryable =
+        isTransientOrTimeoutError(lastError) || isQuotaExhaustedError(lastError)
+
+      if (openRouter && isRetryable && remainingBudget >= MIN_REMAINING_BUDGET_MS) {
+        console.warn(
+          `[Extraction] Primary AI extraction failed with retryable error. Attempting OpenRouter cross-provider fallback with model: ${openRouter.model}...`
+        )
+        const openRouterTimeout = Math.min(FALLBACK_TIMEOUT_MS, remainingBudget)
+        try {
+          response = await openRouter.client.chat.completions.create(
+            {
+              model: openRouter.model,
+              messages: [
+                { role: 'system', content: RECIPE_EXTRACTION_SYSTEM_PROMPT },
+                { role: 'user', content: buildRecipeExtractionUserPrompt(rawText) },
+              ],
+              response_format: { type: 'json_object' },
+              temperature: 0.1,
+              max_tokens: 2500,
+            },
+            {
+              timeout: openRouterTimeout,
+              maxRetries: 0,
+            }
+          )
+          usedModel = openRouter.model
+          usedProvider = 'openrouter'
+          console.log(
+            `[Extraction] Recipe extracted successfully using cross-provider fallback model: ${openRouter.model}`
+          )
+        } catch (openRouterErr: unknown) {
+          const status =
+            (openRouterErr as { status?: number; statusCode?: number })?.status ??
+            (openRouterErr as { status?: number; statusCode?: number })?.statusCode
+          const errorLabel = status ? `HTTP ${status}` : (openRouterErr as Error)?.name || 'Error'
+          console.warn(
+            `[Extraction] OpenRouter cross-provider fallback failed (${errorLabel}). Returning safe classified error.`
+          )
+          return classifyExtractionException(openRouterErr, 'text')
+        }
       }
     }
 
@@ -524,7 +583,7 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
       }
     }
 
-    return { data: validation.data, usedModel }
+    return { data: validation.data, usedModel, provider: usedProvider }
   } catch (error) {
     return classifyExtractionException(error, 'text')
   }
@@ -558,6 +617,7 @@ export async function extractRecipeFromImage(
     let response = null
     let lastError: unknown = null
     let usedModel: string | undefined = undefined
+    let usedProvider: 'gemini' | 'openrouter' | 'openai' = ai.provider
     let quotaRetriesUsed = 0
 
     for (let i = 0; i < candidateModels.length; i++) {
@@ -604,6 +664,7 @@ export async function extractRecipeFromImage(
           }
         )
         usedModel = currentModel
+        usedProvider = ai.provider
         console.log(`[Image Extraction] Recipe image extracted successfully using model: ${currentModel}`)
         break
       } catch (err: unknown) {
@@ -611,7 +672,7 @@ export async function extractRecipeFromImage(
         const isEligible = isTransientOrTimeoutError(err)
         const isLastModel = i === candidateModels.length - 1
 
-        if (isEligible && !isLastModel) {
+        if (isEligible) {
           const isQuota = isQuotaExhaustedError(err)
 
           if (isQuota) {
@@ -621,35 +682,103 @@ export async function extractRecipeFromImage(
               console.warn(
                 `[Image Extraction] Model ${currentModel} encountered project-wide quota exhaustion. Halting candidate failover to prevent wasted requests.`
               )
-              throw err
+              break
             }
 
             if (quotaRetriesUsed >= 1) {
               console.warn(
                 `[Image Extraction] Model ${currentModel} encountered quota exhaustion and 1 quota failover was already used. Halting further quota retries.`
               )
-              throw err
+              break
             }
 
-            quotaRetriesUsed++
-            const nextModel = candidateModels[i + 1]
+            if (!isLastModel) {
+              quotaRetriesUsed++
+              const nextModel = candidateModels[i + 1]
+              console.warn(
+                `[Image Extraction] Model ${currentModel} encountered model-specific quota exhaustion (HTTP 429). Attempting next eligible model (${nextModel}) at most once...`
+              )
+              continue
+            }
+
+            break
+          }
+
+          if (!isLastModel) {
+            const status =
+              (err as { status?: number; statusCode?: number })?.status ??
+              (err as { status?: number; statusCode?: number })?.statusCode
+            const errorLabel = status ? `HTTP ${status}` : (err as Error)?.name || 'Timeout'
             console.warn(
-              `[Image Extraction] Model ${currentModel} encountered model-specific quota exhaustion (HTTP 429). Attempting next eligible model (${nextModel}) at most once...`
+              `[Image Extraction] Model ${currentModel} encountered transient failure (${errorLabel}) within ${attemptTimeoutMs}ms attempt budget. Failing over to next candidate...`
             )
             continue
           }
 
-          const status =
-            (err as { status?: number; statusCode?: number })?.status ??
-            (err as { status?: number; statusCode?: number })?.statusCode
-          const errorLabel = status ? `HTTP ${status}` : (err as Error)?.name || 'Timeout'
-          console.warn(
-            `[Image Extraction] Model ${currentModel} encountered transient failure (${errorLabel}) within ${attemptTimeoutMs}ms attempt budget. Failing over to next candidate...`
-          )
-          continue
+          break
         }
 
+        // Non-transient / client error - do not failover
         throw err
+      }
+    }
+
+    // If primary provider candidates failed with retryable error, attempt cross-provider fallback via OpenRouter
+    if (!response) {
+      const openRouter = getOpenRouterConfig()
+      const remainingBudget = aiDeadline - Date.now()
+      const isRetryable =
+        isTransientOrTimeoutError(lastError) || isQuotaExhaustedError(lastError)
+
+      if (openRouter && isRetryable && remainingBudget >= MIN_REMAINING_BUDGET_MS) {
+        console.warn(
+          `[Image Extraction] Primary AI extraction failed with retryable error. Attempting OpenRouter cross-provider fallback with model: ${openRouter.model}...`
+        )
+        const openRouterTimeout = Math.min(FALLBACK_TIMEOUT_MS, remainingBudget)
+        try {
+          response = await openRouter.client.chat.completions.create(
+            {
+              model: openRouter.model,
+              messages: [
+                { role: 'system', content: IMAGE_RECIPE_EXTRACTION_SYSTEM_PROMPT },
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'text', text: buildImageExtractionUserPrompt() },
+                    {
+                      type: 'image_url',
+                      image_url: {
+                        url: imageUrl,
+                        detail: 'high',
+                      },
+                    },
+                  ],
+                },
+              ],
+              response_format: { type: 'json_object' },
+              temperature: 0.1,
+              max_tokens: 2500,
+            },
+            {
+              timeout: openRouterTimeout,
+              maxRetries: 0,
+            }
+          )
+          usedModel = openRouter.model
+          usedProvider = 'openrouter'
+          console.log(
+            `[Image Extraction] Recipe image extracted successfully using cross-provider fallback model: ${openRouter.model}`
+          )
+        } catch (openRouterErr: unknown) {
+          const status =
+            (openRouterErr as { status?: number; statusCode?: number })?.status ??
+            (openRouterErr as { status?: number; statusCode?: number })?.statusCode
+          const errorLabel = status ? `HTTP ${status}` : (openRouterErr as Error)?.name || 'Error'
+          console.warn(
+            `[Image Extraction] OpenRouter cross-provider fallback failed (${errorLabel}). Returning safe classified error.`
+          )
+          return classifyExtractionException(openRouterErr, 'image')
+        }
       }
     }
 
@@ -692,8 +821,9 @@ export async function extractRecipeFromImage(
       }
     }
 
-    return { data: validation.data, usedModel }
+    return { data: validation.data, usedModel, provider: usedProvider }
   } catch (error) {
     return classifyExtractionException(error, 'image')
   }
 }
+
