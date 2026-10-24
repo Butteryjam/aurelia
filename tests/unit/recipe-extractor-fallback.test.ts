@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   extractRecipeFromText,
   extractRecipeFromImage,
+  extractRetryAfterSeconds,
+  classifyExtractionException,
 } from '@/features/ai/services/extractor'
 import {
   TOTAL_AI_BUDGET_MS,
@@ -9,8 +11,10 @@ import {
   FALLBACK_TIMEOUT_MS,
   MIN_REMAINING_BUDGET_MS,
   GEMINI_STABLE_FALLBACK_MODELS,
+  GEMINI_EXTRACTION_FALLBACK_MODELS,
   isTransientOrTimeoutError,
   resolveCandidateModels,
+  resolveExtractionCandidateModels,
 } from '@/features/ai/services/ai-resilience'
 import * as chefModule from '@/features/ai/services/chef'
 import * as openaiClientModule from '@/features/ai/services/openai-client'
@@ -61,6 +65,7 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.restoreAllMocks()
+    delete process.env.GEMINI_EXTRACTION_MODEL
   })
 
   describe('Shared AI Resilience Module Integrity', () => {
@@ -74,7 +79,7 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
       expect(chefModule.resolveCandidateModels).toBe(resolveCandidateModels)
     })
 
-    it('resolves candidate models with gemini-3.5-flash as bounded fallback', () => {
+    it('resolves candidate models with gemini-3.5-flash as bounded fallback for Chef and Modifier', () => {
       const candidates = resolveCandidateModels('gemini', 'gemini-3.6-flash')
       expect(candidates).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash'])
       expect(candidates).toHaveLength(2)
@@ -91,8 +96,78 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
     })
   })
 
+  describe('Recipe Extraction Candidate Models Resolution', () => {
+    it('resolves extraction candidate models including gemini-3.5-flash-lite as first fallback when GEMINI_EXTRACTION_MODEL is not set', () => {
+      const candidates = resolveExtractionCandidateModels('gemini', 'gemini-3.6-flash')
+      expect(candidates).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.5-flash'])
+    })
+
+    it('prioritizes gemini-3.5-flash-lite as primary when configured via GEMINI_EXTRACTION_MODEL', () => {
+      process.env.GEMINI_EXTRACTION_MODEL = 'gemini-3.5-flash-lite'
+      const candidates = resolveExtractionCandidateModels('gemini', 'gemini-3.6-flash')
+      expect(candidates).toEqual(['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.5-flash'])
+    })
+
+    it('returns single primary model for non-gemini providers', () => {
+      expect(resolveExtractionCandidateModels('openai', 'gpt-4o-mini')).toEqual(['gpt-4o-mini'])
+    })
+  })
+
+  describe('extractRetryAfterSeconds & Quota Handling', () => {
+    it('extracts retry delay from HTTP Retry-After header', () => {
+      const errorWithHeader = {
+        status: 429,
+        headers: new Headers({ 'retry-after': '45' }),
+      }
+      expect(extractRetryAfterSeconds(errorWithHeader)).toBe(45)
+    })
+
+    it('extracts retry delay from Google RPC RetryInfo structure', () => {
+      const errorWithRpc = {
+        status: 429,
+        error: [
+          {
+            error: {
+              code: 429,
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                  retryDelay: '56589s',
+                },
+              ],
+            },
+          },
+        ],
+      }
+      expect(extractRetryAfterSeconds(errorWithRpc)).toBe(56589)
+    })
+
+    it('extracts retry delay from error message regex', () => {
+      const errorWithMsg = {
+        status: 429,
+        message: 'Rate limit exceeded. Please retry in 120s.',
+      }
+      expect(extractRetryAfterSeconds(errorWithMsg)).toBe(120)
+    })
+
+    it('falls back to 60s when no delay information is available', () => {
+      const errorWithoutDelay = { status: 429, message: 'Resource exhausted' }
+      expect(extractRetryAfterSeconds(errorWithoutDelay)).toBe(60)
+    })
+
+    it('classifies 429 with parsed retryAfterSeconds without immediate retries', () => {
+      const result = classifyExtractionException({
+        status: 429,
+        message: 'Resource exhausted. Please retry in 90s.',
+      }, 'text')
+      expect(result.statusCode).toBe(429)
+      expect(result.errorCategory).toBe('quota_exhausted')
+      expect(result.retryAfterSeconds).toBe(90)
+    })
+  })
+
   describe('Text Extraction Resilience (extractRecipeFromText)', () => {
-    it('primary timeout (24s budget) -> gemini-3.5-flash fallback (20s budget) succeeds', async () => {
+    it('primary timeout (24s budget) -> gemini-3.5-flash-lite fallback (20s budget) succeeds', async () => {
       const recordedAttempts: Array<{ model: string; options: any }> = []
       const createMock = vi.fn().mockImplementation(async ({ model }, options) => {
         recordedAttempts.push({ model, options })
@@ -133,8 +208,8 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
       expect(recordedAttempts[0].options.timeout).toBe(PRIMARY_TIMEOUT_MS)
       expect(recordedAttempts[0].options.maxRetries).toBe(0)
 
-      // Fallback attempt
-      expect(recordedAttempts[1].model).toBe('gemini-3.5-flash')
+      // Fallback attempt (gemini-3.5-flash-lite)
+      expect(recordedAttempts[1].model).toBe('gemini-3.5-flash-lite')
       expect(recordedAttempts[1].options.timeout).toBe(FALLBACK_TIMEOUT_MS)
       expect(recordedAttempts[1].options.maxRetries).toBe(0)
 
@@ -144,7 +219,7 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
       expect(result.data?.instructions).toHaveLength(2)
     })
 
-    it('primary 503 -> fallback to gemini-3.5-flash succeeds', async () => {
+    it('primary 503 -> fallback to gemini-3.5-flash-lite succeeds', async () => {
       const recordedAttempts: string[] = []
       const createMock = vi.fn().mockImplementation(async ({ model }) => {
         recordedAttempts.push(model)
@@ -179,12 +254,12 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
 
       const result = await extractRecipeFromText('Sample raw recipe text...')
 
-      expect(recordedAttempts).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash'])
+      expect(recordedAttempts).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash-lite'])
       expect(result.error).toBeUndefined()
       expect(result.data?.title).toBe("Grandma's Rustic Tuscan White Bean Soup")
     })
 
-    it('primary 429 -> fallback to gemini-3.5-flash succeeds', async () => {
+    it('primary 429 -> fallback to gemini-3.5-flash-lite succeeds', async () => {
       const recordedAttempts: string[] = []
       const createMock = vi.fn().mockImplementation(async ({ model }) => {
         recordedAttempts.push(model)
@@ -219,7 +294,42 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
 
       const result = await extractRecipeFromText('Sample raw recipe text...')
 
-      expect(recordedAttempts).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash'])
+      expect(recordedAttempts).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash-lite'])
+      expect(result.error).toBeUndefined()
+      expect(result.data?.title).toBe("Grandma's Rustic Tuscan White Bean Soup")
+    })
+
+    it('configured GEMINI_EXTRACTION_MODEL=gemini-3.5-flash-lite succeeds directly on first attempt', async () => {
+      process.env.GEMINI_EXTRACTION_MODEL = 'gemini-3.5-flash-lite'
+      const recordedAttempts: string[] = []
+      const createMock = vi.fn().mockImplementation(async ({ model }) => {
+        recordedAttempts.push(model)
+        return {
+          choices: [
+            {
+              message: {
+                content: MOCK_VALID_RECIPE_JSON,
+              },
+            },
+          ],
+        }
+      })
+
+      vi.spyOn(openaiClientModule, 'getAiConfig').mockReturnValue({
+        provider: 'gemini',
+        model: 'gemini-3.6-flash',
+        client: {
+          chat: {
+            completions: {
+              create: createMock,
+            },
+          },
+        } as any,
+      })
+
+      const result = await extractRecipeFromText('Sample raw recipe text...')
+
+      expect(recordedAttempts).toEqual(['gemini-3.5-flash-lite'])
       expect(result.error).toBeUndefined()
       expect(result.data?.title).toBe("Grandma's Rustic Tuscan White Bean Soup")
     })
@@ -275,7 +385,12 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
 
       const result = await extractRecipeFromText('Sample raw recipe text...')
 
-      expect(recordedAttempts).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash'])
+      // When all candidates fail, all candidates are attempted within budget
+      expect(recordedAttempts).toEqual([
+        'gemini-3.6-flash',
+        'gemini-3.5-flash-lite',
+        'gemini-3.5-flash',
+      ])
       expect(result.data).toBeUndefined()
       expect(result.error).toBe('Unable to process this recipe at the moment. Your recipe collection is safe.')
     })
@@ -354,7 +469,7 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
   })
 
   describe('Image Extraction Resilience (extractRecipeFromImage)', () => {
-    it('primary timeout (24s budget) -> gemini-3.5-flash fallback (20s budget) succeeds', async () => {
+    it('primary timeout (24s budget) -> gemini-3.5-flash-lite fallback (20s budget) succeeds for image', async () => {
       const recordedAttempts: Array<{ model: string; options: any }> = []
       const createMock = vi.fn().mockImplementation(async ({ model }, options) => {
         recordedAttempts.push({ model, options })
@@ -394,7 +509,7 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
       expect(recordedAttempts[0].options.timeout).toBe(PRIMARY_TIMEOUT_MS)
       expect(recordedAttempts[0].options.maxRetries).toBe(0)
 
-      expect(recordedAttempts[1].model).toBe('gemini-3.5-flash')
+      expect(recordedAttempts[1].model).toBe('gemini-3.5-flash-lite')
       expect(recordedAttempts[1].options.timeout).toBe(FALLBACK_TIMEOUT_MS)
       expect(recordedAttempts[1].options.maxRetries).toBe(0)
 
@@ -402,7 +517,7 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
       expect(result.data?.title).toBe("Grandma's Rustic Tuscan White Bean Soup")
     })
 
-    it('primary 503 -> fallback to gemini-3.5-flash succeeds for image', async () => {
+    it('primary 503 -> fallback to gemini-3.5-flash-lite succeeds for image', async () => {
       const recordedAttempts: string[] = []
       const createMock = vi.fn().mockImplementation(async ({ model }) => {
         recordedAttempts.push(model)
@@ -437,12 +552,12 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
 
       const result = await extractRecipeFromImage('data:image/jpeg;base64,ZmFrZWltYWdlZGF0YQ==')
 
-      expect(recordedAttempts).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash'])
+      expect(recordedAttempts).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash-lite'])
       expect(result.error).toBeUndefined()
       expect(result.data?.title).toBe("Grandma's Rustic Tuscan White Bean Soup")
     })
 
-    it('primary 429 -> fallback to gemini-3.5-flash succeeds for image', async () => {
+    it('primary 429 -> fallback to gemini-3.5-flash-lite succeeds for image', async () => {
       const recordedAttempts: string[] = []
       const createMock = vi.fn().mockImplementation(async ({ model }) => {
         recordedAttempts.push(model)
@@ -477,7 +592,42 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
 
       const result = await extractRecipeFromImage('data:image/jpeg;base64,ZmFrZWltYWdlZGF0YQ==')
 
-      expect(recordedAttempts).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash'])
+      expect(recordedAttempts).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash-lite'])
+      expect(result.error).toBeUndefined()
+      expect(result.data?.title).toBe("Grandma's Rustic Tuscan White Bean Soup")
+    })
+
+    it('configured GEMINI_EXTRACTION_MODEL=gemini-3.5-flash-lite succeeds directly on first attempt for image', async () => {
+      process.env.GEMINI_EXTRACTION_MODEL = 'gemini-3.5-flash-lite'
+      const recordedAttempts: string[] = []
+      const createMock = vi.fn().mockImplementation(async ({ model }) => {
+        recordedAttempts.push(model)
+        return {
+          choices: [
+            {
+              message: {
+                content: MOCK_VALID_RECIPE_JSON,
+              },
+            },
+          ],
+        }
+      })
+
+      vi.spyOn(openaiClientModule, 'getAiConfig').mockReturnValue({
+        provider: 'gemini',
+        model: 'gemini-3.6-flash',
+        client: {
+          chat: {
+            completions: {
+              create: createMock,
+            },
+          },
+        } as any,
+      })
+
+      const result = await extractRecipeFromImage('data:image/jpeg;base64,ZmFrZWltYWdlZGF0YQ==')
+
+      expect(recordedAttempts).toEqual(['gemini-3.5-flash-lite'])
       expect(result.error).toBeUndefined()
       expect(result.data?.title).toBe("Grandma's Rustic Tuscan White Bean Soup")
     })
@@ -533,7 +683,12 @@ describe('Recipe Extractor AI Resilience & Failover Suite', () => {
 
       const result = await extractRecipeFromImage('data:image/jpeg;base64,ZmFrZWltYWdlZGF0YQ==')
 
-      expect(recordedAttempts).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash'])
+      // When all candidates fail, all candidates are attempted within budget
+      expect(recordedAttempts).toEqual([
+        'gemini-3.6-flash',
+        'gemini-3.5-flash-lite',
+        'gemini-3.5-flash',
+      ])
       expect(result.data).toBeUndefined()
       expect(result.error).toBe('Unable to analyze this recipe image right now. Please try again or paste the text.')
     })

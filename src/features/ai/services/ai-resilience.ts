@@ -32,6 +32,16 @@ export const MIN_REMAINING_BUDGET_MS = 5000
 export const GEMINI_STABLE_FALLBACK_MODELS = ['gemini-3.5-flash'] as const
 
 /**
+ * Verified stable fallback models for Recipe Extraction.
+ * Includes gemini-3.5-flash-lite (dedicated quota pool & ~5s latency)
+ * and gemini-3.5-flash.
+ */
+export const GEMINI_EXTRACTION_FALLBACK_MODELS = [
+  'gemini-3.5-flash-lite',
+  'gemini-3.5-flash',
+] as const
+
+/**
  * Detects whether an error thrown by the AI provider is transient (e.g. 503 high demand,
  * 429 quota exhaustion, 500/502/504 gateway issues) or a client-side connection timeout
  * (OpenAI SDK APIConnectionTimeoutError, socket timeout, or fetch abort), making it
@@ -99,6 +109,27 @@ export function isTransientOrTimeoutError(err: unknown): boolean {
 export function resolveCandidateModels(provider: string, primaryModel: string): string[] {
   if (provider === 'gemini') {
     return Array.from(new Set([primaryModel, ...GEMINI_STABLE_FALLBACK_MODELS]))
+  }
+  return [primaryModel]
+}
+
+/**
+ * Resolve candidate models for recipe extraction.
+ * Supports GEMINI_EXTRACTION_MODEL environment override, defaulting to
+ * gemini-3.5-flash-lite or primaryModel with verified stable fallbacks.
+ */
+export function resolveExtractionCandidateModels(
+  provider: string,
+  primaryModel: string
+): string[] {
+  if (provider === 'gemini') {
+    const configuredExtractionModel = process.env.GEMINI_EXTRACTION_MODEL?.trim()
+    const primary = configuredExtractionModel || primaryModel
+    const fallbacks =
+      primary === 'gemini-3.5-flash-lite'
+        ? ['gemini-3.6-flash', 'gemini-3.5-flash']
+        : ['gemini-3.5-flash-lite', 'gemini-3.5-flash']
+    return Array.from(new Set([primary, ...fallbacks]))
   }
   return [primaryModel]
 }

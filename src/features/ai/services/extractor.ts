@@ -15,7 +15,7 @@ import {
   FALLBACK_TIMEOUT_MS,
   MIN_REMAINING_BUDGET_MS,
   isTransientOrTimeoutError,
-  resolveCandidateModels,
+  resolveExtractionCandidateModels,
 } from './ai-resilience'
 import { parseManualItem } from '@/lib/utils/shopping-consolidator'
 import type { ExtractedRecipeData } from '../types'
@@ -186,6 +186,73 @@ export interface ExtractionResult<T = ExtractedRecipeData> {
 }
 
 /**
+ * Safely extracts retry delay in seconds from provider HTTP response headers or RPC details.
+ * Prevents immediate repeated retries on quota exhaustion (HTTP 429).
+ */
+export function extractRetryAfterSeconds(error: unknown): number {
+  if (!error) return 60
+  const err = error as Record<string, unknown>
+
+  // 1. Check HTTP header from OpenAI SDK error or response
+  const responseObj = err.response as Record<string, unknown> | undefined
+  const headers = (err.headers || responseObj?.headers) as
+    | { get?: (k: string) => string | null }
+    | Record<string, string>
+    | undefined
+
+  if (headers) {
+    let rawVal: string | null | undefined
+    if ('get' in headers && typeof headers.get === 'function') {
+      rawVal = headers.get('retry-after')
+    } else {
+      rawVal =
+        (headers as Record<string, string>)['retry-after'] ||
+        (headers as Record<string, string>)['Retry-After']
+    }
+    if (rawVal) {
+      const parsed = parseInt(String(rawVal), 10)
+      if (!isNaN(parsed) && parsed > 0) return parsed
+    }
+  }
+
+  // 2. Check Google RPC RetryInfo structure in error body
+  try {
+    const errorBody = Array.isArray(err.error)
+      ? (err.error[0] as Record<string, unknown> | undefined)
+      : (err.error as Record<string, unknown> | undefined)
+    const nestedError = errorBody?.error as Record<string, unknown> | undefined
+    const details = nestedError?.details || errorBody?.details
+    if (Array.isArray(details)) {
+      const retryInfo = details.find((d: unknown) => {
+        const item = d as Record<string, unknown> | undefined
+        return (
+          typeof item?.['@type'] === 'string' &&
+          item['@type'].includes('RetryInfo') &&
+          typeof item.retryDelay === 'string'
+        )
+      }) as { retryDelay?: string } | undefined
+      if (retryInfo?.retryDelay) {
+        const parsed = parseInt(retryInfo.retryDelay.replace(/s$/i, ''), 10)
+        if (!isNaN(parsed) && parsed > 0) return parsed
+      }
+    }
+  } catch {
+    // fallback
+  }
+
+  // 3. Check error message for patterns like "retry in 15h43m" or "retry in 60s"
+  if (typeof err.message === 'string') {
+    const secMatch = err.message.match(/retry in\s+(\d+)\s*s/i)
+    if (secMatch) {
+      const s = parseInt(secMatch[1], 10)
+      if (!isNaN(s) && s > 0) return s
+    }
+  }
+
+  return 60
+}
+
+/**
  * Classifies server-side extraction errors into safe diagnostic categories.
  * Never logs or exposes API keys, tokens, or raw user images.
  */
@@ -223,12 +290,15 @@ export function classifyExtractionException(
     message.includes('resource_exhausted') ||
     message.includes('rate limit')
   ) {
-    console.warn(`[${mode === 'image' ? 'Image ' : ''}Extraction] Safe error category: quota_exhausted (HTTP 429)`)
+    const retryAfterSeconds = extractRetryAfterSeconds(error)
+    console.warn(
+      `[${mode === 'image' ? 'Image ' : ''}Extraction] Safe error category: quota_exhausted (HTTP 429, retry-after: ${retryAfterSeconds}s)`
+    )
     return {
       error: defaultErrorMessage,
       errorCategory: 'quota_exhausted',
       statusCode: 429,
-      retryAfterSeconds: 60,
+      retryAfterSeconds,
     }
   }
 
@@ -307,7 +377,7 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
   }
 
   try {
-    const candidateModels = resolveCandidateModels(ai.provider, ai.model)
+    const candidateModels = resolveExtractionCandidateModels(ai.provider, ai.model)
     const aiDeadline = Date.now() + TOTAL_AI_BUDGET_MS
 
     let response = null
@@ -432,7 +502,7 @@ export async function extractRecipeFromImage(
       ? base64Data
       : `data:${mimeType};base64,${base64Data}`
 
-    const candidateModels = resolveCandidateModels(ai.provider, ai.model)
+    const candidateModels = resolveExtractionCandidateModels(ai.provider, ai.model)
     const aiDeadline = Date.now() + TOTAL_AI_BUDGET_MS
 
     let response = null

@@ -76,19 +76,32 @@ export async function POST(request: Request) {
         rateLimited: true,
         retryAfterSeconds: rateLimit.retryAfterSeconds,
       },
-      { status: 429 }
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(rateLimit.retryAfterSeconds ?? 60),
+        },
+      }
     )
   }
 
   const result = await extractRecipeFromImage(base64Data, mimeType)
   if (result.error || !result.data) {
+    const headers: Record<string, string> = {}
+    if (result.statusCode === 429 && result.retryAfterSeconds) {
+      headers['Retry-After'] = String(result.retryAfterSeconds)
+    }
+
     return NextResponse.json(
       {
         error: result.error || 'Failed to extract recipe from image.',
         errorCategory: result.errorCategory || 'unexpected_error',
         retryAfterSeconds: result.retryAfterSeconds,
       },
-      { status: result.statusCode || 500 }
+      {
+        status: result.statusCode || 500,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+      }
     )
   }
 
