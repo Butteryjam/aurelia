@@ -2,12 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   extractRecipeFromText,
   extractRecipeFromImage,
-  normalizeExtractedRecipe,
 } from '@/features/ai/services/extractor'
 import * as openaiClientModule from '@/features/ai/services/openai-client'
 import {
   getOpenRouterConfig,
   isOpenRouterConfigured,
+  isOpenRouterFreeModel,
+  resetOpenRouterConfigForTesting,
   DEFAULT_OPENROUTER_EXTRACTION_MODEL,
 } from '@/features/ai/services/openai-client'
 import { POST as extractTextRoute } from '@/app/api/ai/extract-text/route'
@@ -77,7 +78,7 @@ const MOCK_RAW_STRING_RECIPE_JSON = JSON.stringify({
   tags: ['chicken', 'skillet'],
 })
 
-describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
+describe('OpenRouter Secondary AI Cross-Provider Fallback Suite (Free Models Only)', () => {
   const originalEnv = { ...process.env }
 
   beforeEach(() => {
@@ -86,9 +87,36 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
     process.env = { ...originalEnv }
     delete process.env.OPENROUTER_API_KEY
     delete process.env.OPENROUTER_EXTRACTION_MODEL
+    resetOpenRouterConfigForTesting()
+  })
+
+  describe('Free Model Safety Guard (isOpenRouterFreeModel)', () => {
+    it('recognizes openrouter/free as valid free model', () => {
+      expect(isOpenRouterFreeModel('openrouter/free')).toBe(true)
+      expect(isOpenRouterFreeModel('OPENROUTER/FREE')).toBe(true)
+    })
+
+    it('recognizes models ending with :free as valid free models', () => {
+      expect(isOpenRouterFreeModel('meta-llama/llama-3.3-70b-instruct:free')).toBe(true)
+      expect(isOpenRouterFreeModel('google/gemma-4-31b-it:free')).toBe(true)
+      expect(isOpenRouterFreeModel('nvidia/nemotron-3.5-super-vl:free')).toBe(true)
+    })
+
+    it('strictly rejects any paid model to prevent accidental spending', () => {
+      expect(isOpenRouterFreeModel('openai/gpt-4o-mini')).toBe(false)
+      expect(isOpenRouterFreeModel('openai/gpt-4o')).toBe(false)
+      expect(isOpenRouterFreeModel('anthropic/claude-3-haiku')).toBe(false)
+      expect(isOpenRouterFreeModel('meta-llama/llama-3.3-70b-instruct')).toBe(false)
+      expect(isOpenRouterFreeModel('')).toBe(false)
+      expect(isOpenRouterFreeModel(undefined as any)).toBe(false)
+    })
   })
 
   describe('Configuration & Security Validation', () => {
+    it('default model is openrouter/free', () => {
+      expect(DEFAULT_OPENROUTER_EXTRACTION_MODEL).toBe('openrouter/free')
+    })
+
     it('returns null and reports unconfigured when OPENROUTER_API_KEY is not set or placeholder', () => {
       delete process.env.OPENROUTER_API_KEY
       expect(isOpenRouterConfigured()).toBe(false)
@@ -99,26 +127,33 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
       expect(getOpenRouterConfig()).toBeNull()
     })
 
-    it('returns configured client with default model openai/gpt-4o-mini when valid key is provided', () => {
+    it('returns configured client with default model openrouter/free when valid key is provided', () => {
       process.env.OPENROUTER_API_KEY = 'sk-or-v1-testkey123'
       expect(isOpenRouterConfigured()).toBe(true)
       const config = getOpenRouterConfig()
       expect(config).not.toBeNull()
-      expect(config?.model).toBe(DEFAULT_OPENROUTER_EXTRACTION_MODEL)
-      expect(config?.model).toBe('openai/gpt-4o-mini')
+      expect(config?.model).toBe('openrouter/free')
       expect(config?.client).toBeDefined()
     })
 
-    it('honors OPENROUTER_EXTRACTION_MODEL override when configured', () => {
+    it('accepts explicitly verified free model ending in :free via OPENROUTER_EXTRACTION_MODEL', () => {
       process.env.OPENROUTER_API_KEY = 'sk-or-v1-testkey123'
-      process.env.OPENROUTER_EXTRACTION_MODEL = 'anthropic/claude-3-haiku'
+      process.env.OPENROUTER_EXTRACTION_MODEL = 'meta-llama/llama-3.3-70b-instruct:free'
       const config = getOpenRouterConfig()
-      expect(config?.model).toBe('anthropic/claude-3-haiku')
+      expect(config?.model).toBe('meta-llama/llama-3.3-70b-instruct:free')
+    })
+
+    it('strictly rejects paid models configured via OPENROUTER_EXTRACTION_MODEL and returns null', () => {
+      process.env.OPENROUTER_API_KEY = 'sk-or-v1-testkey123'
+      process.env.OPENROUTER_EXTRACTION_MODEL = 'openai/gpt-4o-mini'
+      const config = getOpenRouterConfig()
+      expect(config).toBeNull()
+      expect(isOpenRouterConfigured()).toBe(false)
     })
   })
 
-  describe('Text Extraction Cross-Provider Fallback', () => {
-    it('Gemini succeeds -> OpenRouter is never invoked', async () => {
+  describe('Text Extraction Cross-Provider Fallback with Free Models', () => {
+    it('Gemini succeeds -> OpenRouter free model is never invoked', async () => {
       const geminiMock = vi.fn().mockResolvedValue({
         choices: [{ message: { content: MOCK_VALID_RECIPE_JSON } }],
       })
@@ -130,7 +165,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
         client: { chat: { completions: { create: geminiMock } } } as any,
       })
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: openRouterMock } } } as any,
       })
 
@@ -144,7 +179,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
       expect(result.provider).toBe('gemini')
     })
 
-    it('Gemini quota exhaustion (429) triggers OpenRouter fallback and succeeds', async () => {
+    it('Gemini quota exhaustion (429) triggers OpenRouter openrouter/free fallback and succeeds', async () => {
       const quotaErr = new Error('Resource exhausted: Rate limit reached.')
       ;(quotaErr as any).status = 429
       ;(quotaErr as any).details = [
@@ -165,7 +200,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
         client: { chat: { completions: { create: geminiMock } } } as any,
       })
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: openRouterMock } } } as any,
       })
 
@@ -174,7 +209,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
       expect(openRouterMock).toHaveBeenCalledTimes(1)
       expect(openRouterMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'openai/gpt-4o-mini',
+          model: 'openrouter/free',
           response_format: { type: 'json_object' },
           max_tokens: 2500,
           temperature: 0.1,
@@ -185,11 +220,11 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
       )
       expect(result.error).toBeUndefined()
       expect(result.data?.title).toBe("Grandma's Rustic Tuscan White Bean Soup")
-      expect(result.usedModel).toBe('openai/gpt-4o-mini')
+      expect(result.usedModel).toBe('openrouter/free')
       expect(result.provider).toBe('openrouter')
     })
 
-    it('Gemini 503 provider unavailability triggers OpenRouter fallback', async () => {
+    it('Gemini 503 provider unavailability triggers OpenRouter openrouter/free fallback', async () => {
       const error503 = new Error('Model is overloaded. Please try again.')
       ;(error503 as any).status = 503
 
@@ -204,7 +239,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
         client: { chat: { completions: { create: geminiMock } } } as any,
       })
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: openRouterMock } } } as any,
       })
 
@@ -213,9 +248,10 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
       expect(openRouterMock).toHaveBeenCalledTimes(1)
       expect(result.error).toBeUndefined()
       expect(result.provider).toBe('openrouter')
+      expect(result.usedModel).toBe('openrouter/free')
     })
 
-    it('Gemini timeout triggers OpenRouter fallback', async () => {
+    it('Gemini timeout triggers OpenRouter free fallback', async () => {
       const timeoutErr = new Error('Request timed out.')
       timeoutErr.name = 'APIConnectionTimeoutError'
 
@@ -230,7 +266,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
         client: { chat: { completions: { create: geminiMock } } } as any,
       })
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: openRouterMock } } } as any,
       })
 
@@ -239,9 +275,10 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
       expect(openRouterMock).toHaveBeenCalledTimes(1)
       expect(result.error).toBeUndefined()
       expect(result.provider).toBe('openrouter')
+      expect(result.usedModel).toBe('openrouter/free')
     })
 
-    it('A project-wide Gemini quota error bypasses further Gemini attempts but uses OpenRouter', async () => {
+    it('Project-wide Gemini quota error bypasses further Gemini attempts but uses openrouter/free', async () => {
       const projectWide429 = new Error('Daily quota exceeded for project')
       ;(projectWide429 as any).status = 429
       ;(projectWide429 as any).details = [
@@ -266,7 +303,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
         client: { chat: { completions: { create: geminiMock } } } as any,
       })
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: openRouterMock } } } as any,
       })
 
@@ -274,47 +311,47 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
 
       // Only 1 Gemini attempt made (project-wide halts candidate failover)
       expect(recordedGeminiAttempts).toHaveLength(1)
-      // OpenRouter was attempted once as cross-provider fallback and succeeded
+      // OpenRouter free model was attempted once as cross-provider fallback and succeeded
       expect(openRouterMock).toHaveBeenCalledTimes(1)
       expect(result.error).toBeUndefined()
       expect(result.provider).toBe('openrouter')
-      expect(result.usedModel).toBe('openai/gpt-4o-mini')
+      expect(result.usedModel).toBe('openrouter/free')
     })
 
-    it('Invalid input / non-retryable 400 error does NOT invoke OpenRouter', async () => {
-      const clientError400 = new Error('Bad request: invalid parameter')
-      ;(clientError400 as any).status = 400
+    it('Safety guard blocks non-free OpenRouter model and never calls paid API', async () => {
+      const gemini503 = new Error('Gemini overloaded')
+      ;(gemini503 as any).status = 503
 
-      const geminiMock = vi.fn().mockRejectedValue(clientError400)
-      const openRouterMock = vi.fn()
+      const openRouterPaidMock = vi.fn()
 
       vi.spyOn(openaiClientModule, 'getAiConfig').mockReturnValue({
         provider: 'gemini',
         model: 'gemini-3.5-flash-lite',
-        client: { chat: { completions: { create: geminiMock } } } as any,
+        client: { chat: { completions: { create: vi.fn().mockRejectedValue(gemini503) } } } as any,
       })
+      // Even if openRouter config somehow returned a paid model
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
-        client: { chat: { completions: { create: openRouterMock } } } as any,
+        model: 'openai/gpt-4o',
+        client: { chat: { completions: { create: openRouterPaidMock } } } as any,
       })
 
-      const result = await extractRecipeFromText('Invalid recipe content...')
+      const result = await extractRecipeFromText('Recipe content...')
 
-      expect(openRouterMock).not.toHaveBeenCalled()
+      // Paid model must NEVER be called
+      expect(openRouterPaidMock).not.toHaveBeenCalled()
       expect(result.data).toBeUndefined()
-      expect(result.errorCategory).toBe('invalid_input')
-      expect(result.statusCode).toBe(400)
+      expect(result.errorCategory).toBe('provider_unavailable')
     })
 
-    it('OpenRouter failure returns a safe structured error without looping or retrying', async () => {
+    it('Free model rate limit or failure returns safe error without calling a paid model', async () => {
       const gemini429 = new Error('Quota exhausted')
       ;(gemini429 as any).status = 429
 
-      const openRouter503 = new Error('OpenRouter upstream provider unavailable')
-      ;(openRouter503 as any).status = 503
+      const openRouterFree429 = new Error('Free model rate limit exceeded')
+      ;(openRouterFree429 as any).status = 429
 
       const geminiMock = vi.fn().mockRejectedValue(gemini429)
-      const openRouterMock = vi.fn().mockRejectedValue(openRouter503)
+      const openRouterMock = vi.fn().mockRejectedValue(openRouterFree429)
 
       vi.spyOn(openaiClientModule, 'getAiConfig').mockReturnValue({
         provider: 'gemini',
@@ -322,23 +359,22 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
         client: { chat: { completions: { create: geminiMock } } } as any,
       })
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: openRouterMock } } } as any,
       })
 
       const result = await extractRecipeFromText('Recipe text...')
 
-      // At most one OpenRouter attempt made
       expect(openRouterMock).toHaveBeenCalledTimes(1)
       expect(result.data).toBeUndefined()
-      expect(result.errorCategory).toBe('provider_unavailable')
-      expect(result.statusCode).toBe(503)
+      expect(result.errorCategory).toBe('quota_exhausted')
+      expect(result.statusCode).toBe(429)
       expect(result.error).toBe(
         'Unable to process this recipe at the moment. Your recipe collection is safe.'
       )
     })
 
-    it('OpenRouter response with un-normalized ingredients and instructions is normalized and schema validated', async () => {
+    it('openrouter/free response with un-normalized text is normalized and schema validated', async () => {
       const gemini503 = new Error('Gemini unavailable')
       ;(gemini503 as any).status = 503
 
@@ -352,7 +388,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
         client: { chat: { completions: { create: vi.fn().mockRejectedValue(gemini503) } } } as any,
       })
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: openRouterMock } } } as any,
       })
 
@@ -361,6 +397,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
       expect(result.error).toBeUndefined()
       expect(result.data).toBeDefined()
       expect(result.provider).toBe('openrouter')
+      expect(result.usedModel).toBe('openrouter/free')
       // Normalized ingredients
       expect(result.data?.ingredients[0]).toEqual({
         name: 'chicken thighs',
@@ -382,8 +419,8 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
     })
   })
 
-  describe('Image Extraction Cross-Provider Fallback', () => {
-    it('Gemini image failure triggers OpenRouter multimodal fallback and succeeds', async () => {
+  describe('Image Extraction Cross-Provider Fallback with Free Models', () => {
+    it('Gemini image failure triggers openrouter/free multimodal fallback and succeeds', async () => {
       const gemini429 = new Error('Quota exhausted for image')
       ;(gemini429 as any).status = 429
 
@@ -398,7 +435,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
         client: { chat: { completions: { create: geminiMock } } } as any,
       })
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: openRouterMock } } } as any,
       })
 
@@ -407,7 +444,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
 
       expect(openRouterMock).toHaveBeenCalledTimes(1)
       const callArgs = openRouterMock.mock.calls[0][0]
-      expect(callArgs.model).toBe('openai/gpt-4o-mini')
+      expect(callArgs.model).toBe('openrouter/free')
       expect(callArgs.messages[1].content).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ type: 'text' }),
@@ -420,9 +457,34 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
       expect(result.error).toBeUndefined()
       expect(result.data?.title).toBe("Grandma's Rustic Tuscan White Bean Soup")
       expect(result.provider).toBe('openrouter')
+      expect(result.usedModel).toBe('openrouter/free')
     })
 
-    it('OpenRouter image failure returns safe classified error for image mode', async () => {
+    it('Safety guard blocks non-free OpenRouter model on image extraction', async () => {
+      const gemini503 = new Error('Gemini image unavailable')
+      ;(gemini503 as any).status = 503
+
+      const openRouterPaidMock = vi.fn()
+
+      vi.spyOn(openaiClientModule, 'getAiConfig').mockReturnValue({
+        provider: 'gemini',
+        model: 'gemini-3.5-flash-lite',
+        client: { chat: { completions: { create: vi.fn().mockRejectedValue(gemini503) } } } as any,
+      })
+      vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
+        model: 'openai/gpt-4o',
+        client: { chat: { completions: { create: openRouterPaidMock } } } as any,
+      })
+
+      const result = await extractRecipeFromImage('data:image/jpeg;base64,dGVzdA==')
+
+      // Paid model must NEVER be called
+      expect(openRouterPaidMock).not.toHaveBeenCalled()
+      expect(result.data).toBeUndefined()
+      expect(result.errorCategory).toBe('provider_unavailable')
+    })
+
+    it('OpenRouter free model image failure returns safe classified error for image mode', async () => {
       const gemini503 = new Error('Gemini image unavailable')
       ;(gemini503 as any).status = 503
 
@@ -435,7 +497,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
         client: { chat: { completions: { create: vi.fn().mockRejectedValue(gemini503) } } } as any,
       })
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: vi.fn().mockRejectedValue(openRouter500) } } } as any,
       })
 
@@ -454,7 +516,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
     it('rejects unauthenticated requests before invoking extractor or OpenRouter', async () => {
       const openRouterMock = vi.fn()
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: openRouterMock } } } as any,
       })
 
@@ -472,11 +534,10 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
     it('rejects invalid text payloads (< 15 characters) before invoking extractor or OpenRouter', async () => {
       const openRouterMock = vi.fn()
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: openRouterMock } } } as any,
       })
 
-      // Mock auth to succeed
       const authModule = await import('@/lib/supabase/mobile-auth')
       vi.spyOn(authModule, 'authenticateMobileRequest').mockResolvedValue({
         user: { id: 'usr-123' } as any,
@@ -503,7 +564,7 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
     it('rejects unsupported image formats before invoking extractor or OpenRouter', async () => {
       const openRouterMock = vi.fn()
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: openRouterMock } } } as any,
       })
 
@@ -548,16 +609,16 @@ describe('OpenRouter Secondary AI Cross-Provider Fallback Suite', () => {
         } as any,
       })
       vi.spyOn(openaiClientModule, 'getOpenRouterConfig').mockReturnValue({
-        model: 'openai/gpt-4o-mini',
+        model: 'openrouter/free',
         client: { chat: { completions: { create: openRouterMock } } } as any,
       })
 
       const result = await extractRecipeFromText('Recipe text for white bean soup...')
 
       expect(result.data).toBeDefined()
-      // Extractor returns extraction result data for the client UI confirmation step
-      // without performing any DB insertion.
       expect(result.data?.title).toBe("Grandma's Rustic Tuscan White Bean Soup")
+      expect(result.usedModel).toBe('openrouter/free')
+      expect(result.provider).toBe('openrouter')
     })
   })
 })

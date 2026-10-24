@@ -1,5 +1,5 @@
 import 'server-only'
-import { getAiConfig, getOpenRouterConfig } from './openai-client'
+import { getAiConfig, getOpenRouterConfig, isOpenRouterFreeModel } from './openai-client'
 import {
   RECIPE_EXTRACTION_SYSTEM_PROMPT,
   buildRecipeExtractionUserPrompt,
@@ -497,7 +497,7 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
       }
     }
 
-    // If primary provider candidates failed with retryable error, attempt cross-provider fallback via OpenRouter
+    // If primary provider candidates failed with retryable error, attempt cross-provider fallback via OpenRouter (free models only)
     if (!response) {
       const openRouter = getOpenRouterConfig()
       const remainingBudget = aiDeadline - Date.now()
@@ -505,41 +505,47 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
         isTransientOrTimeoutError(lastError) || isQuotaExhaustedError(lastError)
 
       if (openRouter && isRetryable && remainingBudget >= MIN_REMAINING_BUDGET_MS) {
-        console.warn(
-          `[Extraction] Primary AI extraction failed with retryable error. Attempting OpenRouter cross-provider fallback with model: ${openRouter.model}...`
-        )
-        const openRouterTimeout = Math.min(FALLBACK_TIMEOUT_MS, remainingBudget)
-        try {
-          response = await openRouter.client.chat.completions.create(
-            {
-              model: openRouter.model,
-              messages: [
-                { role: 'system', content: RECIPE_EXTRACTION_SYSTEM_PROMPT },
-                { role: 'user', content: buildRecipeExtractionUserPrompt(rawText) },
-              ],
-              response_format: { type: 'json_object' },
-              temperature: 0.1,
-              max_tokens: 2500,
-            },
-            {
-              timeout: openRouterTimeout,
-              maxRetries: 0,
-            }
-          )
-          usedModel = openRouter.model
-          usedProvider = 'openrouter'
-          console.log(
-            `[Extraction] Recipe extracted successfully using cross-provider fallback model: ${openRouter.model}`
-          )
-        } catch (openRouterErr: unknown) {
-          const status =
-            (openRouterErr as { status?: number; statusCode?: number })?.status ??
-            (openRouterErr as { status?: number; statusCode?: number })?.statusCode
-          const errorLabel = status ? `HTTP ${status}` : (openRouterErr as Error)?.name || 'Error'
+        if (!isOpenRouterFreeModel(openRouter.model)) {
           console.warn(
-            `[Extraction] OpenRouter cross-provider fallback failed (${errorLabel}). Returning safe classified error.`
+            `[Extraction] Refusing to invoke non-free OpenRouter model "${openRouter.model}". Aurelia strictly permits free models only.`
           )
-          return classifyExtractionException(openRouterErr, 'text')
+        } else {
+          console.warn(
+            `[Extraction] Primary AI extraction failed with retryable error. Attempting OpenRouter free fallback with model: ${openRouter.model}...`
+          )
+          const openRouterTimeout = Math.min(FALLBACK_TIMEOUT_MS, remainingBudget)
+          try {
+            response = await openRouter.client.chat.completions.create(
+              {
+                model: openRouter.model,
+                messages: [
+                  { role: 'system', content: RECIPE_EXTRACTION_SYSTEM_PROMPT },
+                  { role: 'user', content: buildRecipeExtractionUserPrompt(rawText) },
+                ],
+                response_format: { type: 'json_object' },
+                temperature: 0.1,
+                max_tokens: 2500,
+              },
+              {
+                timeout: openRouterTimeout,
+                maxRetries: 0,
+              }
+            )
+            usedModel = openRouter.model
+            usedProvider = 'openrouter'
+            console.log(
+              `[Extraction] Recipe extracted successfully using free cross-provider fallback model: ${openRouter.model}`
+            )
+          } catch (openRouterErr: unknown) {
+            const status =
+              (openRouterErr as { status?: number; statusCode?: number })?.status ??
+              (openRouterErr as { status?: number; statusCode?: number })?.statusCode
+            const errorLabel = status ? `HTTP ${status}` : (openRouterErr as Error)?.name || 'Error'
+            console.warn(
+              `[Extraction] OpenRouter cross-provider fallback failed (${errorLabel}). Returning safe classified error.`
+            )
+            return classifyExtractionException(openRouterErr, 'text')
+          }
         }
       }
     }
@@ -723,7 +729,7 @@ export async function extractRecipeFromImage(
       }
     }
 
-    // If primary provider candidates failed with retryable error, attempt cross-provider fallback via OpenRouter
+    // If primary provider candidates failed with retryable error, attempt cross-provider fallback via OpenRouter (free models only)
     if (!response) {
       const openRouter = getOpenRouterConfig()
       const remainingBudget = aiDeadline - Date.now()
@@ -731,53 +737,59 @@ export async function extractRecipeFromImage(
         isTransientOrTimeoutError(lastError) || isQuotaExhaustedError(lastError)
 
       if (openRouter && isRetryable && remainingBudget >= MIN_REMAINING_BUDGET_MS) {
-        console.warn(
-          `[Image Extraction] Primary AI extraction failed with retryable error. Attempting OpenRouter cross-provider fallback with model: ${openRouter.model}...`
-        )
-        const openRouterTimeout = Math.min(FALLBACK_TIMEOUT_MS, remainingBudget)
-        try {
-          response = await openRouter.client.chat.completions.create(
-            {
-              model: openRouter.model,
-              messages: [
-                { role: 'system', content: IMAGE_RECIPE_EXTRACTION_SYSTEM_PROMPT },
-                {
-                  role: 'user',
-                  content: [
-                    { type: 'text', text: buildImageExtractionUserPrompt() },
-                    {
-                      type: 'image_url',
-                      image_url: {
-                        url: imageUrl,
-                        detail: 'high',
-                      },
-                    },
-                  ],
-                },
-              ],
-              response_format: { type: 'json_object' },
-              temperature: 0.1,
-              max_tokens: 2500,
-            },
-            {
-              timeout: openRouterTimeout,
-              maxRetries: 0,
-            }
-          )
-          usedModel = openRouter.model
-          usedProvider = 'openrouter'
-          console.log(
-            `[Image Extraction] Recipe image extracted successfully using cross-provider fallback model: ${openRouter.model}`
-          )
-        } catch (openRouterErr: unknown) {
-          const status =
-            (openRouterErr as { status?: number; statusCode?: number })?.status ??
-            (openRouterErr as { status?: number; statusCode?: number })?.statusCode
-          const errorLabel = status ? `HTTP ${status}` : (openRouterErr as Error)?.name || 'Error'
+        if (!isOpenRouterFreeModel(openRouter.model)) {
           console.warn(
-            `[Image Extraction] OpenRouter cross-provider fallback failed (${errorLabel}). Returning safe classified error.`
+            `[Image Extraction] Refusing to invoke non-free OpenRouter model "${openRouter.model}". Aurelia strictly permits free models only.`
           )
-          return classifyExtractionException(openRouterErr, 'image')
+        } else {
+          console.warn(
+            `[Image Extraction] Primary AI extraction failed with retryable error. Attempting OpenRouter free fallback with model: ${openRouter.model}...`
+          )
+          const openRouterTimeout = Math.min(FALLBACK_TIMEOUT_MS, remainingBudget)
+          try {
+            response = await openRouter.client.chat.completions.create(
+              {
+                model: openRouter.model,
+                messages: [
+                  { role: 'system', content: IMAGE_RECIPE_EXTRACTION_SYSTEM_PROMPT },
+                  {
+                    role: 'user',
+                    content: [
+                      { type: 'text', text: buildImageExtractionUserPrompt() },
+                      {
+                        type: 'image_url',
+                        image_url: {
+                          url: imageUrl,
+                          detail: 'high',
+                        },
+                      },
+                    ],
+                  },
+                ],
+                response_format: { type: 'json_object' },
+                temperature: 0.1,
+                max_tokens: 2500,
+              },
+              {
+                timeout: openRouterTimeout,
+                maxRetries: 0,
+              }
+            )
+            usedModel = openRouter.model
+            usedProvider = 'openrouter'
+            console.log(
+              `[Image Extraction] Recipe image extracted successfully using free cross-provider fallback model: ${openRouter.model}`
+            )
+          } catch (openRouterErr: unknown) {
+            const status =
+              (openRouterErr as { status?: number; statusCode?: number })?.status ??
+              (openRouterErr as { status?: number; statusCode?: number })?.statusCode
+            const errorLabel = status ? `HTTP ${status}` : (openRouterErr as Error)?.name || 'Error'
+            console.warn(
+              `[Image Extraction] OpenRouter cross-provider fallback failed (${errorLabel}). Returning safe classified error.`
+            )
+            return classifyExtractionException(openRouterErr, 'image')
+          }
         }
       }
     }

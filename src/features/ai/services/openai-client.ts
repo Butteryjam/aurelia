@@ -117,11 +117,29 @@ export interface OpenRouterConfig {
 
 let cachedOpenRouterConfig: { key: string; config: OpenRouterConfig } | null = null
 
-export const DEFAULT_OPENROUTER_EXTRACTION_MODEL = 'openai/gpt-4o-mini'
+export const DEFAULT_OPENROUTER_EXTRACTION_MODEL = 'openrouter/free'
+
+/**
+ * Strict safety guard: Only OpenRouter free models ('openrouter/free' or ending with ':free')
+ * are permitted to guarantee zero spending.
+ */
+export function isOpenRouterFreeModel(modelId: string): boolean {
+  if (!modelId || typeof modelId !== 'string') return false
+  const trimmed = modelId.trim().toLowerCase()
+  return trimmed === 'openrouter/free' || trimmed.endsWith(':free')
+}
+
+/**
+ * Resets the cached OpenRouter configuration (primarily for unit tests).
+ */
+export function resetOpenRouterConfigForTesting(): void {
+  cachedOpenRouterConfig = null
+}
 
 /**
  * Returns an OpenAI-compatible client configured for OpenRouter.
  * Uses https://openrouter.ai/api/v1 with server-only OPENROUTER_API_KEY.
+ * Strictly enforces that only verified free models ('openrouter/free' or ':free') can be used.
  */
 export function getOpenRouterConfig(): OpenRouterConfig | null {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim()
@@ -132,6 +150,14 @@ export function getOpenRouterConfig(): OpenRouterConfig | null {
   const model =
     process.env.OPENROUTER_EXTRACTION_MODEL?.trim() ||
     DEFAULT_OPENROUTER_EXTRACTION_MODEL
+
+  // Safety guard: reject non-free models to guarantee $0 spending
+  if (!isOpenRouterFreeModel(model)) {
+    console.warn(
+      `[OpenRouter] Model "${model}" is not a verified free model. Aurelia is strictly configured for free models only. OpenRouter integration disabled.`
+    )
+    return null
+  }
 
   const cacheKey = `${apiKey}:${model}`
   if (cachedOpenRouterConfig?.key === cacheKey) {
@@ -157,8 +183,9 @@ export function getOpenRouterConfig(): OpenRouterConfig | null {
 }
 
 /**
- * Check if OpenRouter is configured with a valid key.
+ * Check if OpenRouter is configured with a valid key and a verified free model.
  */
 export function isOpenRouterConfigured(): boolean {
   return getOpenRouterConfig() !== null
 }
+
