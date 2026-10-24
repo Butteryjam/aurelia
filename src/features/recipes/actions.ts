@@ -9,6 +9,7 @@ import {
   type CreateRecipeInput,
   type UpdateRecipeInput,
 } from '@/lib/validators/recipe'
+import { cleanupRecipeImages } from '@/features/recipes/utils/storage'
 
 export interface ActionResult<T = unknown> {
   data?: T
@@ -296,7 +297,7 @@ export async function updateRecipe(
 /**
  * Delete a recipe. Cascading foreign keys will delete child records.
  */
-export async function deleteRecipe(id: string): Promise<ActionResult<{ success: true }>> {
+export async function deleteRecipe(id: string): Promise<ActionResult<{ success: true; id: string }>> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -306,21 +307,94 @@ export async function deleteRecipe(id: string): Promise<ActionResult<{ success: 
     return { error: 'You must be signed in to delete a recipe.' }
   }
 
-  const { error } = await supabase
+  const { data: deleted, error } = await supabase
     .from('recipes')
     .delete()
     .eq('id', id)
     .eq('user_id', user.id)
+    .select('id, image_url')
 
   if (error) {
     console.error('Failed to delete recipe:', error)
     return { error: 'Could not delete recipe.' }
   }
 
+  if (!deleted || deleted.length === 0) {
+    return { error: 'Recipe not found or you do not have permission to delete it.' }
+  }
+
+  if (deleted[0]?.image_url) {
+    await cleanupRecipeImages(supabase, [deleted[0].image_url])
+  }
+
   revalidatePath('/recipes')
+  revalidatePath('/collections')
   revalidatePath('/')
 
-  return { data: { success: true } }
+  return { data: { success: true, id } }
+}
+
+/**
+ * Bulk delete recipes owned by the authenticated user.
+ * Cascading foreign keys will delete child records.
+ */
+export async function bulkDeleteRecipes(
+  ids: string[]
+): Promise<ActionResult<{ success: true; count: number; deletedIds: string[] }>> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { error: 'You must be signed in to delete recipes.' }
+  }
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return { error: 'No recipes selected for deletion.' }
+  }
+
+  const uniqueIds = Array.from(new Set(ids.filter((id) => typeof id === 'string' && id.trim().length > 0)))
+  if (uniqueIds.length === 0) {
+    return { error: 'No valid recipes selected for deletion.' }
+  }
+
+  if (uniqueIds.length > 100) {
+    return { error: 'Cannot delete more than 100 recipes at once.' }
+  }
+
+  const { data: deleted, error } = await supabase
+    .from('recipes')
+    .delete()
+    .in('id', uniqueIds)
+    .eq('user_id', user.id)
+    .select('id, image_url')
+
+  if (error) {
+    console.error('Failed to bulk delete recipes:', error)
+    return { error: 'Could not delete selected recipes.' }
+  }
+
+  if (!deleted || deleted.length === 0) {
+    return { error: 'No matching recipes found to delete or permission denied.' }
+  }
+
+  const imageUrls = deleted.map((r) => r.image_url).filter(Boolean)
+  if (imageUrls.length > 0) {
+    await cleanupRecipeImages(supabase, imageUrls)
+  }
+
+  revalidatePath('/recipes')
+  revalidatePath('/collections')
+  revalidatePath('/')
+
+  return {
+    data: {
+      success: true,
+      count: deleted.length,
+      deletedIds: deleted.map((r) => r.id),
+    },
+  }
 }
 
 /**

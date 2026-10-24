@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { authenticateMobileRequest } from '@/lib/supabase/mobile-auth'
 import { updateRecipeSchema } from '@/lib/validators/recipe'
+import { cleanupRecipeImages } from '@/features/recipes/utils/storage'
 import type { UpdateDto } from '@/types/database'
 
 interface RouteContext {
@@ -176,15 +177,24 @@ export async function DELETE(_request: Request, context: RouteContext) {
   const { id: recipeId } = await context.params
   const { user, supabase } = auth
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('recipes')
     .delete()
     .eq('id', recipeId)
     .eq('user_id', user.id)
+    .select('id, image_url')
 
   if (error) {
     console.error('[DELETE /api/recipes/[id]] Delete error:', error)
     return NextResponse.json({ error: 'Could not delete recipe.' }, { status: 500 })
+  }
+
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: 'Recipe not found or permission denied.' }, { status: 404 })
+  }
+
+  if (data[0]?.image_url) {
+    await cleanupRecipeImages(supabase, [data[0].image_url])
   }
 
   return NextResponse.json({ data: { success: true } })

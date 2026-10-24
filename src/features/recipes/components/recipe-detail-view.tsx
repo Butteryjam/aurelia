@@ -43,6 +43,7 @@ export function RecipeDetailView({ recipe }: RecipeDetailViewProps) {
   const [checkedIngredients, setCheckedIngredients] = useState<Record<string, boolean>>({})
   const [completedSteps, setCompletedSteps] = useState<Record<number, boolean>>({})
   const [copied, setCopied] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   const baseServings = recipe.servings || 4
   const hasInstructions = Boolean(recipe.recipe_instructions && recipe.recipe_instructions.length > 0)
@@ -189,21 +190,26 @@ export function RecipeDetailView({ recipe }: RecipeDetailViewProps) {
                       </Link>
                     </DropdownMenuItem>
                   </div>
-                  <DeleteRecipeDialog
-                    recipeId={recipe.id}
-                    recipeTitle={recipe.title}
-                    trigger={
-                      <button className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 rounded-lg transition-colors text-left">
-                        <Trash2 className="h-3.5 w-3.5" />
-                        <span>Delete Recipe</span>
-                      </button>
-                    }
-                  />
+                  <DropdownMenuItem
+                    onClick={() => setDeleteDialogOpen(true)}
+                    className="gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Delete Recipe</span>
+                  </DropdownMenuItem>
                 </>
               )}
             </>
           }
         />
+        {recipe.is_owner && (
+          <DeleteRecipeDialog
+            recipeId={recipe.id}
+            recipeTitle={recipe.title}
+            open={deleteDialogOpen}
+            onOpenChange={setDeleteDialogOpen}
+          />
+        )}
       </div>
 
       {/* ─── HERO MEDIA & TITLE SECTION ─── */}

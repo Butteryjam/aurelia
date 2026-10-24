@@ -1,9 +1,19 @@
+'use client'
+
+import { useState } from 'react'
 import Link from 'next/link'
-import { Clock, ChefHat } from 'lucide-react'
+import { Clock, ChefHat, Check, MoreVertical, Trash2 } from 'lucide-react'
 import type { Recipe } from '@/types/database'
 import { Badge } from '@/components/ui/badge'
 import { FavoriteButton } from './favorite-button'
 import { SafeImage } from '@/components/shared/safe-image'
+import { DeleteRecipeDialog } from './delete-recipe-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 
 interface RecipeCardProps {
@@ -11,9 +21,24 @@ interface RecipeCardProps {
   isFavorite?: boolean
   className?: string
   action?: React.ReactNode
+  isSelectionMode?: boolean
+  isSelected?: boolean
+  onToggleSelect?: (recipeId: string) => void
+  onDeleteSuccess?: (recipeId: string) => void
 }
 
-export function RecipeCard({ recipe, isFavorite = false, className, action }: RecipeCardProps) {
+export function RecipeCard({
+  recipe,
+  isFavorite = false,
+  className,
+  action,
+  isSelectionMode = false,
+  isSelected = false,
+  onToggleSelect,
+  onDeleteSuccess,
+}: RecipeCardProps) {
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+
   const difficultyVariantMap: Record<string, 'difficulty-easy' | 'difficulty-medium' | 'difficulty-hard'> = {
     easy: 'difficulty-easy',
     medium: 'difficulty-medium',
@@ -26,13 +51,56 @@ export function RecipeCard({ recipe, isFavorite = false, className, action }: Re
       ? (recipe.prep_time || 0) + (recipe.cook_time || 0)
       : null)
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (isSelectionMode) {
+      e.preventDefault()
+      e.stopPropagation()
+      onToggleSelect?.(recipe.id)
+    }
+  }
+
+  const handleCheckboxKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault()
+      onToggleSelect?.(recipe.id)
+    }
+  }
+
   return (
     <article
+      onClick={handleCardClick}
       className={cn(
-        'group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-card transition-all duration-200 hover:shadow-hover hover:border-border/90 active:scale-[0.995]',
+        'group relative flex flex-col overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-card transition-all duration-200',
+        isSelectionMode
+          ? 'cursor-pointer select-none hover:border-primary/60'
+          : 'hover:shadow-hover hover:border-border/90 active:scale-[0.995]',
+        isSelected
+          ? 'ring-2 ring-primary border-primary bg-primary/[0.02]'
+          : 'border-border',
         className
       )}
     >
+      {/* Selection Mode Indicator Checkbox */}
+      {isSelectionMode && (
+        <div className="absolute left-3 top-3 z-30">
+          <div
+            role="checkbox"
+            tabIndex={0}
+            aria-checked={isSelected}
+            aria-label={isSelected ? `Deselect ${recipe.title}` : `Select ${recipe.title}`}
+            onKeyDown={handleCheckboxKeyDown}
+            className={cn(
+              'h-6 w-6 rounded-md border flex items-center justify-center transition-all duration-150 shadow-md backdrop-blur-md',
+              isSelected
+                ? 'bg-primary border-primary text-primary-foreground'
+                : 'bg-background/90 border-border/80 text-transparent hover:border-primary'
+            )}
+          >
+            <Check className={cn('h-3.5 w-3.5 stroke-[3]', isSelected ? 'opacity-100' : 'opacity-0')} />
+          </div>
+        </div>
+      )}
+
       {/* Card Media */}
       <div className="relative aspect-[16/10] w-full overflow-hidden bg-muted">
         <SafeImage
@@ -54,19 +122,45 @@ export function RecipeCard({ recipe, isFavorite = false, className, action }: Re
           aria-hidden="true"
         />
 
-        {/* Favorite Floating Button */}
-        <div className="absolute right-3 top-3 z-10">
-          <FavoriteButton
-            recipeId={recipe.id}
-            initialFavorite={isFavorite}
-            size="sm"
-            className="shadow-card"
-          />
-        </div>
+        {/* Floating Controls: Favorite & Contextual Menu (hidden in selection mode) */}
+        {!isSelectionMode && (
+          <div className="absolute right-3 top-3 z-10 flex items-center gap-1.5">
+            <FavoriteButton
+              recipeId={recipe.id}
+              initialFavorite={isFavorite}
+              size="sm"
+              className="shadow-card"
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`Options for ${recipe.title}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="h-8 w-8 rounded-full bg-background/85 dark:bg-card/85 backdrop-blur-md border border-border/80 shadow-card flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setDeleteDialogOpen(true)
+                  }}
+                  className="gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer text-xs"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Delete Recipe</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
 
-        {/* Difficulty Badge */}
+        {/* Difficulty Badge (offset in selection mode so checkbox is clear) */}
         {recipe.difficulty && (
-          <div className="absolute left-3 top-3 z-10">
+          <div className={cn('absolute top-3 z-10', isSelectionMode ? 'left-11' : 'left-3')}>
             <Badge
               variant={difficultyVariantMap[recipe.difficulty] || 'tag-neutral'}
               size="sm"
@@ -78,7 +172,7 @@ export function RecipeCard({ recipe, isFavorite = false, className, action }: Re
         )}
 
         {/* Optional Action Overlay (e.g. contextual remove button) */}
-        {action && (
+        {action && !isSelectionMode && (
           <div className="absolute bottom-2.5 left-2.5 z-20">
             {action}
           </div>
@@ -97,10 +191,16 @@ export function RecipeCard({ recipe, isFavorite = false, className, action }: Re
 
         {/* Title: Editorial serif font with consistent height */}
         <h3 className="line-clamp-2 text-base sm:text-lg font-serif font-bold tracking-tight text-foreground transition-colors group-hover:text-primary mb-2 min-h-[3rem] leading-snug">
-          <Link href={`/recipes/${recipe.id}`} className="focus-visible:outline-none">
-            <span className="absolute inset-0 z-0" aria-hidden="true" />
-            {recipe.title}
-          </Link>
+          {isSelectionMode ? (
+            <span className="focus-visible:outline-none">
+              {recipe.title}
+            </span>
+          ) : (
+            <Link href={`/recipes/${recipe.id}`} className="focus-visible:outline-none">
+              <span className="absolute inset-0 z-0" aria-hidden="true" />
+              {recipe.title}
+            </Link>
+          )}
         </h3>
 
         {/* Description: Clean 2-line clamp with consistent height */}
@@ -126,6 +226,16 @@ export function RecipeCard({ recipe, isFavorite = false, className, action }: Re
           ) : null}
         </div>
       </div>
+
+      {/* Contextual Delete Dialog from Card */}
+      <DeleteRecipeDialog
+        recipeId={recipe.id}
+        recipeTitle={recipe.title}
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        redirectTo={null}
+        onSuccess={() => onDeleteSuccess?.(recipe.id)}
+      />
     </article>
   )
 }

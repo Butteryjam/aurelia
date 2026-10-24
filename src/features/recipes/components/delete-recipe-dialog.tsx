@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -19,19 +20,41 @@ interface DeleteRecipeDialogProps {
   recipeId: string
   recipeTitle: string
   trigger?: React.ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  onSuccess?: () => void
+  redirectTo?: string | null
 }
 
 export function DeleteRecipeDialog({
   recipeId,
   recipeTitle,
   trigger,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+  onSuccess,
+  redirectTo = '/recipes',
 }: DeleteRecipeDialogProps) {
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
+  const isControlled = controlledOpen !== undefined
+  const open = isControlled ? controlledOpen : internalOpen
+  const setOpen = (newOpen: boolean) => {
+    if (!newOpen) {
+      setError(null)
+    }
+    if (isControlled) {
+      controlledOnOpenChange?.(newOpen)
+    } else {
+      setInternalOpen(newOpen)
+    }
+  }
+
   async function handleDelete() {
+    if (isDeleting) return
     setIsDeleting(true)
     setError(null)
 
@@ -43,9 +66,20 @@ export function DeleteRecipeDialog({
         return
       }
 
+      toast.success('Recipe deleted.')
       setOpen(false)
-      router.push('/recipes')
-      router.refresh()
+      setIsDeleting(false)
+
+      if (onSuccess) {
+        onSuccess()
+      }
+
+      if (redirectTo) {
+        router.push(redirectTo)
+        router.refresh()
+      } else {
+        router.refresh()
+      }
     } catch (err: unknown) {
       console.error('Delete recipe error:', err)
       setError(err instanceof Error ? err.message : 'Could not delete recipe.')
@@ -55,25 +89,38 @@ export function DeleteRecipeDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger || (
-          <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive/10 border-destructive/20 gap-1.5 text-xs">
+      {trigger ? (
+        <DialogTrigger asChild>{trigger}</DialogTrigger>
+      ) : (
+        <DialogTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-destructive hover:bg-destructive/10 border-destructive/20 gap-1.5 text-xs"
+          >
             <Trash2 className="h-3.5 w-3.5" />
             Delete
           </Button>
-        )}
-      </DialogTrigger>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle className="text-destructive font-semibold">Delete Recipe</DialogTitle>
-          <DialogDescription className="pt-2 text-sm">
-            Are you sure you want to delete <strong className="text-foreground">{recipeTitle}</strong>?
-            This action cannot be undone, and will permanently delete this recipe, its ingredients, and instructions.
+          <DialogTitle className="text-destructive font-semibold">Delete this recipe?</DialogTitle>
+          <DialogDescription className="pt-2 text-sm text-muted-foreground">
+            {recipeTitle ? (
+              <span className="block mb-1 font-medium text-foreground">
+                &ldquo;{recipeTitle}&rdquo;
+              </span>
+            ) : null}
+            This recipe will be permanently deleted. This action cannot be undone.
           </DialogDescription>
         </DialogHeader>
 
         {error && (
-          <div role="alert" className="rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-xs text-destructive font-medium">
+          <div
+            role="alert"
+            className="rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-xs text-destructive font-medium"
+          >
             {error}
           </div>
         )}
@@ -100,7 +147,7 @@ export function DeleteRecipeDialog({
                 Deleting…
               </>
             ) : (
-              'Delete recipe'
+              'Delete Recipe'
             )}
           </Button>
         </DialogFooter>
