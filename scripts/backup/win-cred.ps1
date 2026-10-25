@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true)]
-    [ValidateSet("Save", "Read", "Delete", "ProtectFile", "UnprotectFile", "List")]
+    [ValidateSet("Save", "Read", "Delete", "ProtectFile", "UnprotectFile", "CopyToClipboard", "List")]
     [string]$Action,
 
     [string]$Target,
@@ -135,5 +135,29 @@ switch ($Action) {
         )
         $text = [System.Text.Encoding]::UTF8.GetString($unprotected).TrimEnd("`r`n")
         [Console]::Out.Write($text)
+    }
+
+    "CopyToClipboard" {
+        $content = $null
+        if ($Target) {
+            $content = [WinCredManager]::ReadCredential($Target)
+        } elseif ($InputPath -and (Test-Path $InputPath)) {
+            $encBytes = [System.IO.File]::ReadAllBytes($InputPath)
+            $unprotected = [System.Security.Cryptography.ProtectedData]::Unprotect(
+                $encBytes,
+                $null,
+                [System.Security.Cryptography.DataProtectionScope]::CurrentUser
+            )
+            $content = [System.Text.Encoding]::UTF8.GetString($unprotected).TrimEnd("`r`n")
+        } else {
+            throw "Either -Target or valid -InputPath is required for CopyToClipboard."
+        }
+
+        if ($null -eq $content) {
+            throw "Could not retrieve credential to copy."
+        }
+
+        Set-Clipboard -Value $content
+        Write-Output "Passphrase securely copied to system clipboard. You can paste it directly into your cross-device password manager (e.g. Bitwarden, 1Password)."
     }
 }

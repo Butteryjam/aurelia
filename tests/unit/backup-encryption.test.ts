@@ -5,7 +5,8 @@ import os from 'os'
 import { encryptBackupDirectory } from '../../scripts/backup/encrypt-backup'
 import { decryptBackupContainer } from '../../scripts/backup/decrypt-backup'
 
-import { resolvePassphrase } from '../../scripts/backup/passphrase-utils'
+import { resolvePassphrase, cleanPassphrase } from '../../scripts/backup/passphrase-utils'
+import { spawnSync } from 'child_process'
 
 describe('Aurelia Backup Encryption & Decryption Suite', () => {
   const baseDir = path.join(os.homedir(), 'AureliaBackups')
@@ -60,6 +61,27 @@ describe('Aurelia Backup Encryption & Decryption Suite', () => {
       const resolved = await resolvePassphrase(['--file', encArchive])
       expect(typeof resolved).toBe('string')
       expect(resolved.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('sanitizes input passphrases by stripping leading UTF-8 BOM and whitespace', () => {
+    const rawWithBom = '\uFEFFMySecretKey123! \r\n'
+    expect(cleanPassphrase(rawWithBom)).toBe('MySecretKey123!')
+  })
+
+  it('supports CopyToClipboard action in win-cred.ps1 without leaking secrets to stdout', () => {
+    if (process.platform === 'win32') {
+      const psScript = path.resolve(__dirname, '../../scripts/backup/win-cred.ps1')
+      const res = spawnSync(
+        'powershell.exe',
+        ['-ExecutionPolicy', 'Bypass', '-File', psScript, '-Action', 'CopyToClipboard', '-Target', 'AureliaBackup_2026-10-25_14-50-25'],
+        { encoding: 'utf8', windowsHide: true }
+      )
+      expect(res.status).toBe(0)
+      expect(res.stdout).toContain('Passphrase securely copied to system clipboard')
+      // Guarantee the actual 64-character secret was not printed to stdout or stderr
+      expect(res.stdout).not.toMatch(/[a-f0-9]{64}/)
+      expect(res.stderr).toBe('')
     }
   })
 

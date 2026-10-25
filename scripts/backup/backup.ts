@@ -699,7 +699,7 @@ export async function runBackup(options: BackupOptions = {}): Promise<BackupResu
       },
       {
         name: 'NEXT_PUBLIC_APP_URL',
-        description: 'Web frontend URL (e.g. https://aurelia-recipes.vercel.app or http://localhost:3000)',
+        description: 'Web frontend URL (e.g. https://aurelia-gamma-one.vercel.app or http://localhost:3000)',
       },
       {
         name: 'EXPO_PUBLIC_SUPABASE_URL',

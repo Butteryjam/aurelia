@@ -18,6 +18,14 @@ import { spawnSync } from 'child_process'
 const WIN_CRED_SCRIPT = path.resolve(__dirname, 'win-cred.ps1')
 
 /**
+ * Sanitizes input passphrase, removing any leading UTF-8 BOM (\uFEFF) injected by
+ * Windows PowerShell stdout redirection or piping, and stripping leading/trailing whitespace.
+ */
+export function cleanPassphrase(raw: string): string {
+  return raw.replace(/^\uFEFF/, '').trim()
+}
+
+/**
  * Safely reads a credential from Windows Credential Manager by target name.
  * Returns null if not found or if running on non-Windows.
  */
@@ -32,7 +40,7 @@ export function readFromWinCred(target: string): string | null {
       { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
     )
     if (res.status === 0 && res.stdout) {
-      const val = res.stdout.replace(/[\r\n]+$/, '')
+      const val = cleanPassphrase(res.stdout)
       if (val.length > 0) return val
     }
   } catch {
@@ -55,7 +63,7 @@ export function readFromDpapi(filePath: string): string | null {
       { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
     )
     if (res.status === 0 && res.stdout) {
-      const val = res.stdout.replace(/[\r\n]+$/, '')
+      const val = cleanPassphrase(res.stdout)
       if (val.length > 0) return val
     }
   } catch {
@@ -99,7 +107,7 @@ export async function resolvePassphrase(
       throw new Error(`Failed to unprotect DPAPI key file: ${filePath}`)
     }
     const content = fs.readFileSync(filePath, 'utf8')
-    return content.replace(/[\r\n]+$/, '')
+    return cleanPassphrase(content)
   }
 
   // 4. Standard input pipe (--stdin)
@@ -111,7 +119,7 @@ export async function resolvePassphrase(
         data += chunk
       })
       process.stdin.on('end', () => {
-        resolve(data.replace(/[\r\n]+$/, ''))
+        resolve(cleanPassphrase(data))
       })
       process.stdin.on('error', reject)
     })
@@ -119,7 +127,7 @@ export async function resolvePassphrase(
 
   // 5. Environment variable (AURELIA_BACKUP_PASSPHRASE)
   if (process.env.AURELIA_BACKUP_PASSPHRASE) {
-    return process.env.AURELIA_BACKUP_PASSPHRASE.replace(/[\r\n]+$/, '')
+    return cleanPassphrase(process.env.AURELIA_BACKUP_PASSPHRASE)
   }
 
   // 6. Automatic Windows Credential lookup by archive or folder name
@@ -151,7 +159,7 @@ export async function resolvePassphrase(
   // 7. Direct CLI argument (--password <passphrase>)
   const passIndex = args.indexOf('--password')
   if (passIndex !== -1 && args[passIndex + 1]) {
-    return args[passIndex + 1]
+    return cleanPassphrase(args[passIndex + 1])
   }
 
   // 8. Interactive masked input in terminal
@@ -177,7 +185,7 @@ export async function resolvePassphrase(
       rl.question('', (answer) => {
         rl.close()
         process.stdout.write('\n')
-        resolve(answer.replace(/[\r\n]+$/, ''))
+        resolve(cleanPassphrase(answer))
       })
     })
   }

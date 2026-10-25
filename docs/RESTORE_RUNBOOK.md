@@ -168,10 +168,10 @@ Every user-owned table (`profiles`, `recipes`, `collections`, `shopping_lists`, 
    - Input your Google **Client ID** and **Client Secret**.
    - Confirm **Automatic email linking** is enabled.
 5. In Supabase Dashboard -> **Authentication -> URL Configuration**:
-   - **Site URL**: `https://aurelia-recipes.vercel.app` (or staging domain).
+   - **Site URL**: `https://aurelia-gamma-one.vercel.app` (or staging domain).
    - **Redirect URLs**:
      - `http://localhost:3000/**`
-     - `https://aurelia-recipes.vercel.app/**`
+     - `https://aurelia-gamma-one.vercel.app/**`
      - `aurelia://auth/callback` (Mobile deep link)
      - `aurelia://reset-password` (Mobile password reset)
 
@@ -257,14 +257,50 @@ To safeguard user data in transit or off-site, the backup tools provide multiple
 5. **Password File (`--password-file <path>`)**: Reads from a secure local credential file (auto-detecting DPAPI if `.dpapi`).
 6. **Environment Variable (`AURELIA_BACKUP_PASSPHRASE`)**: Injected into process memory.
 
-### Plaintext Key Migration & Exposure Audit
+### Plaintext Key Migration & Storage Exposure
 During the security audit, `C:\Users\svish\AureliaBackups\2026-10-25_14-50-25.key` was inspected and found to contain the 256-bit passphrase in plaintext. 
 - **The Exposure**: Storing a plaintext decryption passphrase on the same storage filesystem right next to the `.enc` container negates the benefit of AES-256 encryption at rest if the drive or directory is exfiltrated or copied.
 - **Migration Performed**:
   1. The passphrase was securely migrated into **Windows Credential Manager** under generic credential target `AureliaBackup_2026-10-25_14-50-25`.
   2. A secondary DPAPI-encrypted container was generated at `C:\Users\svish\AureliaBackups\2026-10-25_14-50-25.key.dpapi`.
-  3. Decryption was tested and verified end-to-end using both Windows Credential Manager and DPAPI.
-  4. The plaintext `.key` file was permanently removed from disk after verified decryptability was established.
+  3. Decryption was tested and verified end-to-end using Windows Credential Manager, DPAPI, and standard input piping (`--stdin`).
+  4. The plaintext `.key` file was removed via Windows PowerShell `Remove-Item`. Note: On standard NTFS filesystems, `Remove-Item` unlinks the directory entry from the Master File Table (MFT); it does **not** perform a cryptographic wipe or multi-pass disk shredding. The exposure risk going forward is eliminated because the backup tooling no longer writes plaintext `.key` files.
+
+### Cross-Device Passphrase Storage & Disaster Recovery
+Because Windows Credential Manager and DPAPI are cryptographically bound to the local Windows user profile and machine SID, losing this laptop or reinstalling Windows would prevent decryption if no external copy exists. To ensure true disaster recovery across any device without ever printing or logging the secret:
+
+#### Step 1: Securely Copy Passphrase to System Clipboard (Zero Console Echo)
+Run the built-in clipboard copy action. This reads from Windows Credential Manager and injects the passphrase directly into the Windows clipboard in memory, without printing, logging, or writing to disk:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\backup\win-cred.ps1 -Action CopyToClipboard -Target "AureliaBackup_2026-10-25_14-50-25"
+```
+
+#### Step 2: Store in a Cloud-Synced Password Manager
+1. Open your cross-device password manager (e.g. **Bitwarden**, **1Password**, **KeePassXC**, **Apple Keychain**, or **Proton Pass**) on this PC or linked mobile phone.
+2. Create a new entry:
+   - **Title**: `Aurelia Backup Passphrase - 2026-10-25_14-50-25`
+   - **Category**: Secure Note or Password
+   - **Secret Field**: Paste (`Ctrl+V`) directly from clipboard.
+3. Save and sync across devices.
+4. Immediately clear your clipboard:
+   ```powershell
+   Clear-Clipboard
+   ```
+
+#### Step 3: Decrypting on a Completely Different Machine (Lost Laptop Scenario)
+If this workstation is lost or destroyed, you can restore from any Mac, Linux, or Windows machine:
+1. Copy the encrypted archive (`2026-10-25_14-50-25.enc`) from off-site storage.
+2. Clone the repository and install Node.js dependencies (`npm install`).
+3. Run the decryption command:
+   ```bash
+   npx tsx scripts/backup/decrypt-backup.ts --file 2026-10-25_14-50-25.enc
+   ```
+4. When prompted (`Enter backup passphrase to decrypt: `), copy the passphrase from your password manager app on your phone and paste it directly into the masked prompt, or pipe it securely:
+   ```bash
+   # Or via standard input on any platform:
+   cat secret.txt | npx tsx scripts/backup/decrypt-backup.ts --file 2026-10-25_14-50-25.enc --stdin
+   ```
+   *Note*: The CLI automatically strips leading UTF-8 Byte Order Marks (`\uFEFF`) and trailing newlines, ensuring 100% cross-platform compatibility.
 
 ### Windows File Permissions (ACL Audit)
 Access Control Lists (ACLs) on `2026-10-25_14-50-25.key.dpapi` and the unencrypted backup directory `C:\Users\svish\AureliaBackups\2026-10-25_14-50-25` were audited via `icacls`:
@@ -359,9 +395,10 @@ To maintain strict audit integrity, verified automated test results are clearly 
 | **Storage Files on Disk** | **VERIFIED** | 6 images verified on disk with SHA-256 matching manifest | Local disk files verified; cloud upload tested via dry-run script. |
 | **Storage URL Remapping** | **VERIFIED** | 4 URLs remapped to target domain in PGlite | Live frontend loading against remapped domain not tested. |
 | **Auth UUID Anchor Pre-Provisioning** | **VERIFIED** | 11 user UUIDs created in `auth.users` stub table | Validates relational foreign keys, not GoTrue authentication state. |
-| **Google OAuth Recovery** | **ASSUMPTION** | Documented GoTrue automatic email linking architecture | **UNVERIFIED END-TO-END**. Requires real Google OAuth client credentials on a live Supabase project. |
-| **Password Reset Recovery** | **ASSUMPTION** | Documented Supabase `generateLink` / Forgot Password flow | **UNVERIFIED END-TO-END**. Requires live SMTP service or Supabase Auth email dispatcher. |
-| **Supabase Cloud Project Restore** | **ASSUMPTION** | Standalone SQL scripts and upload tooling prepared | **BLOCKED BY FREE TIER QUOTA**. Cannot provision 3rd Supabase project without $25/mo Pro plan. |
+| **Live Supabase Storage Upload** | **UNVERIFIED** | Local dry-run script prepared | **UNVERIFIED OVER NETWORK**. Requires live Supabase Storage S3/TUS endpoint. |
+| **Google OAuth Recovery** | **UNVERIFIED** | Documented GoTrue automatic email linking architecture | **UNVERIFIED END-TO-END**. Requires real Google OAuth client credentials on a live Supabase project. |
+| **Password Reset Recovery** | **UNVERIFIED** | Documented Supabase `generateLink` / Forgot Password flow | **UNVERIFIED END-TO-END**. Requires live SMTP service or Supabase Auth email dispatcher. |
+| **Managed Supabase Project Restore** | **UNVERIFIED** | Isolated in-process PostgreSQL (PGlite) simulation | **BLOCKED BY FREE TIER QUOTA**. Cannot provision 3rd Supabase project without $25/mo Pro plan. |
 
 ---
 
@@ -369,23 +406,44 @@ To maintain strict audit integrity, verified automated test results are clearly 
 
 If Aurelia experiences catastrophic data loss or the production Supabase project is permanently lost, follow these exact sequential actions to recover the platform:
 
+### Protecting the Paused Supabase Project (`gdcahlofihkqqglogeeo`)
+> [!IMPORTANT]
+> **DO NOT delete or unpause project `gdcahlofihkqqglogeeo` without explicit user approval.**  
+> The project slot should NOT be freed blindly. Follow this procedure to inspect and back up any valuable assets first:
+>
+> 1. **Inspection Procedure**:
+>    - In the [Supabase Dashboard](https://supabase.com/dashboard/project/gdcahlofihkqqglogeeo), do NOT delete the project.
+>    - If the user decides to inspect it, unpause the project (takes ~1-2 minutes).
+>    - Check **Database -> Tables** for any custom application tables or user data.
+>    - Check **Storage** for any media files or private buckets.
+>    - Check **Authentication -> Users** to verify if any production or test users exist.
+>    - Check **SQL Editor / Query History** for uncommitted scripts or schema experiments.
+> 2. **Backup Before Freeing**:
+>    - If valuable data exists, export schema via `npx supabase db dump --project-ref gdcahlofihkqqglogeeo -f backup_gdcahlofihkqqglogeeo_schema.sql`.
+>    - Export storage objects and table data before any project removal.
+> 3. **Alternative to Deletion (Zero Risk to Paused Project)**:
+>    - Instead of deleting `gdcahlofihkqqglogeeo`, you can create a **separate new free Supabase account/organization**.
+>    - A new free account grants 2 brand-new Free Tier project slots at $0/month, completely preserving `gdcahlofihkqqglogeeo` while keeping disaster recovery 100% free.
+
+---
+
 ### Step 1: Provision Clean Supabase DR Project (No Cost)
-1. In the [Supabase Dashboard](https://supabase.com/dashboard), delete the inactive paused project (`gdcahlofihkqqglogeeo`) to free up your Free Tier quota slot (or provision a new free project under a new free account).
-2. Create a new Free Tier project named `Aurelia-DR` in region `ap-southeast-1` (Singapore).
-3. Record the new project's:
+1. Using a new free Supabase organization (or after user-approved deletion of an unneeded project), create a new Free Tier project named `Aurelia-DR` in region `ap-southeast-1` (Singapore).
+2. Record the new project's:
    - `Project Ref` (e.g. `abcdefghijklmnopqrst`)
    - `Project URL` (`https://abcdefghijklmnopqrst.supabase.co`)
    - `anon public` key
    - `service_role` secret key
    - Database connection string and password
 
-### Step 2: Decrypt Backup Archive (if using encrypted bundle)
+### Step 2: Decrypt Backup Archive
 ```powershell
 # Decrypt the verified backup using Windows Credential Manager:
 npx tsx scripts/backup/decrypt-backup.ts `
   --file "C:\Users\svish\AureliaBackups\2026-10-25_14-50-25.enc" `
   --out "C:\Users\svish\AureliaBackups\DR_Restored_2026-10-25"
 ```
+*(On non-Windows or if restoring from another machine, enter the passphrase from your password manager into the interactive prompt or pipe via `--stdin`)*.
 
 ### Step 3: Apply Database Schema
 1. Open `C:\Users\svish\AureliaBackups\DR_Restored_2026-10-25\schema\consolidated_schema.sql`.
@@ -424,10 +482,10 @@ Verify that all 6 image files upload successfully into the `recipe-images` bucke
    - Enter Google Client ID & Client Secret.
    - Enable **Automatic email linking**.
 3. In Supabase Dashboard -> **Authentication -> URL Configuration**:
-   - Site URL: `https://aurelia-recipes.vercel.app`
+   - Site URL: `https://aurelia-gamma-one.vercel.app`
    - Redirect URLs:
      - `http://localhost:3000/**`
-     - `https://aurelia-recipes.vercel.app/**`
+     - `https://aurelia-gamma-one.vercel.app/**`
      - `aurelia://auth/callback`
      - `aurelia://reset-password`
 
