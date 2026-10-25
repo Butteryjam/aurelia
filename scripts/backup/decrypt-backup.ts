@@ -144,7 +144,7 @@ if (require.main === module) {
       ? args[outIndex + 1]
       : path.join(os.tmpdir(), `aurelia_restore_${Date.now()}`)
 
-  resolvePassphrase(args, 'Enter backup passphrase to decrypt: ')
+  resolvePassphrase(args, 'Enter backup passphrase to decrypt: ', encryptedFile)
     .then((passphrase) => {
       decryptBackupContainer(encryptedFile, passphrase, outputDir)
       process.exit(0)

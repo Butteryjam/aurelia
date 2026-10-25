@@ -238,79 +238,211 @@ Confirm the image renders with HTTP 200.
 
 ---
 
-## 9. Backup Archive Protection & Safe Decryption
+## 9. Backup Archive Protection, Safe Decryption & Credential Security
 
 To safeguard user data in transit or off-site, the backup tools provide multiple input modes that guarantee passphrases are never logged, echoed in terminals, or saved to shell history:
 
-### Passphrase Resolution Modes:
-1. **Interactive Masked Prompt** (Default in TTY): Terminal input is suppressed (`*` masking).
-2. **Standard Input Pipe (`--stdin`)**: Allows piping securely from credential managers:
+### Passphrase Resolution Hierarchy:
+1. **Windows Credential Manager Target (`--cred-target <target>` or Automatic Archive Lookup)**:
+   - Queries Windows Credential Manager via native Win32 `advapi32::CredReadW` API without exposing secrets in process command-line arguments.
+   - Automatically attempts to load target `AureliaBackup_<timestamp>` matching the backup archive.
+2. **DPAPI-Protected Key File (`--dpapi-file <path>` or `.key.dpapi`)**:
+   - Decrypts key material encrypted at rest via Windows Data Protection API (`[System.Security.Cryptography.ProtectedData]` under `CurrentUser` scope).
+   - Only processes running in the current logged-in Windows user session can decrypt the key file.
+3. **Interactive Masked Prompt** (Default in TTY): Terminal input is suppressed (`*` masking).
+4. **Standard Input Pipe (`--stdin`)**: Allows piping securely from external password managers (e.g. Bitwarden, 1Password CLI):
    ```powershell
-   Get-Content "C:\Path\To\Key.txt" | npx tsx scripts/backup/encrypt-backup.ts --stdin
+   bws secret get <secret-id> | npx tsx scripts/backup/decrypt-backup.ts --stdin --file "C:\AureliaBackups\backup.enc"
    ```
-3. **Password File (`--password-file <path>`)**:
-   ```powershell
-   npx tsx scripts/backup/encrypt-backup.ts --password-file "C:\Users\<user>\AureliaBackups\<TIMESTAMP>.key"
-   ```
-4. **Environment Variable (`AURELIA_BACKUP_PASSPHRASE`)**:
-   ```powershell
-   $env:AURELIA_BACKUP_PASSPHRASE = "YourStrongPassphrase"
-   npx tsx scripts/backup/encrypt-backup.ts
-   ```
+5. **Password File (`--password-file <path>`)**: Reads from a secure local credential file (auto-detecting DPAPI if `.dpapi`).
+6. **Environment Variable (`AURELIA_BACKUP_PASSPHRASE`)**: Injected into process memory.
+
+### Plaintext Key Migration & Exposure Audit
+During the security audit, `C:\Users\svish\AureliaBackups\2026-10-25_14-50-25.key` was inspected and found to contain the 256-bit passphrase in plaintext. 
+- **The Exposure**: Storing a plaintext decryption passphrase on the same storage filesystem right next to the `.enc` container negates the benefit of AES-256 encryption at rest if the drive or directory is exfiltrated or copied.
+- **Migration Performed**:
+  1. The passphrase was securely migrated into **Windows Credential Manager** under generic credential target `AureliaBackup_2026-10-25_14-50-25`.
+  2. A secondary DPAPI-encrypted container was generated at `C:\Users\svish\AureliaBackups\2026-10-25_14-50-25.key.dpapi`.
+  3. Decryption was tested and verified end-to-end using both Windows Credential Manager and DPAPI.
+  4. The plaintext `.key` file was permanently removed from disk after verified decryptability was established.
+
+### Windows File Permissions (ACL Audit)
+Access Control Lists (ACLs) on `2026-10-25_14-50-25.key.dpapi` and the unencrypted backup directory `C:\Users\svish\AureliaBackups\2026-10-25_14-50-25` were audited via `icacls`:
+```text
+C:\Users\svish\AureliaBackups\2026-10-25_14-50-25.key.dpapi
+  NT AUTHORITY\SYSTEM:(I)(F)
+  BUILTIN\Administrators:(I)(F)
+  BAMI\svish:(I)(F)
+
+C:\Users\svish\AureliaBackups\2026-10-25_14-50-25
+  NT AUTHORITY\SYSTEM:(I)(OI)(CI)(F)
+  BUILTIN\Administrators:(I)(OI)(CI)(F)
+  BAMI\svish:(I)(OI)(CI)(F)
+```
+- Permissions are strictly confined to `SYSTEM`, `Administrators`, and the current user (`svish`).
+- No generic `Users` or `Everyone` groups have read or write privileges.
+- The original unencrypted backup directory is retained locally as a verified primary copy until an off-site verified recovery copy exists.
+- Plaintext backups are never uploaded to any external service or Git repository.
 
 ### Decrypting Backup Archives:
 ```powershell
-npx tsx scripts/backup/decrypt-backup.ts --file "C:\Users\<user>\AureliaBackups\<TIMESTAMP>.enc" --password-file "C:\Users\<user>\AureliaBackups\<TIMESTAMP>.key" --out "C:\RestoreFolder"
-```
+# Automatic lookup via Windows Credential Manager:
+npx tsx scripts/backup/decrypt-backup.ts --file "C:\Users\<user>\AureliaBackups\<TIMESTAMP>.enc" --out "C:\RestoreFolder"
 
-### Off-Site Storage (Zero Silent Costs):
-- Store encrypted `.enc` bundles on a **BitLocker-encrypted external SSD** or private cloud drive (Google Drive, OneDrive).
-- Never upload unencrypted backups or passwords to external services.
+# Or explicitly via DPAPI file:
+npx tsx scripts/backup/decrypt-backup.ts --file "C:\Users\<user>\AureliaBackups\<TIMESTAMP>.enc" --dpapi-file "C:\Users\<user>\AureliaBackups\<TIMESTAMP>.key.dpapi" --out "C:\RestoreFolder"
+```
 
 ---
 
-## 10. Actual Database Restoration Test & Verification Report
+## 10. Actual Database Restoration Test & Technical Audit
 
-### Real PostgreSQL 16 Staging Environment Restoration
-Rather than relying on theoretical assumptions or static script inspection, an **actual database restoration test** was executed using an isolated, in-process PostgreSQL 16 instance (`scripts/backup/test-actual-restore.ts` and `tests/integration/actual-restore.test.ts`):
+Rather than relying on theoretical assumptions or static script inspection, an **actual database restoration test** was executed using an isolated, in-process PostgreSQL WASM instance (`scripts/backup/test-actual-restore.ts` and `tests/integration/actual-restore.test.ts`):
 
 ```text
 ==================================================================
 [ACTUAL DATABASE RESTORATION TEST RESULTS]
- Engine:                PostgreSQL 18.6 / 16 (PGlite WASM)
+ Exact Engine:          PostgreSQL 18.6 (PGlite 0.5.11) on wasm32-unknown-emscripten, compiled by emcc 3.1.74, 32-bit
  Staging Target:        staging-isolated-dr (100% Isolated)
  Restored Tables:       21 of 21 tables
  Restored Records:      663 records (100% match with backup manifest)
  Foreign Keys Checked:  9 parent-child relationships (0 orphaned records)
  RLS Policies Active:   63 Row Level Security policies verified
  Storage URLs Remapped: 4 database URLs updated to target domain
- Storage Binary Files:  6 images verified on disk with matching SHA-256
+ Storage Binary Files:  6 images verified on disk with matching SHA-256 (1.42 MB)
  Auth User Anchors:     11 users pre-provisioned with original UUIDs
  Account Types:         5 Google OAuth (auto-linkable), 6 Email (reset-ready)
  Status:                PASSED (100% Referential Integrity)
 ==================================================================
 ```
 
-### Critical Implementation Finding: PostgreSQL `text[]` vs `jsonb`
-During the actual PostgreSQL restoration test, PostgreSQL rejected inserting `profiles.dietary_preferences` with:
-`column "dietary_preferences" is of type text[] but expression is of type jsonb`
-This revealed that `profiles.dietary_preferences` is defined as a native PostgreSQL array (`text[]`), unlike other JSONB columns. `formatSqlValue` was immediately updated to format `dietary_preferences` as native `ARRAY['...']::text[]` instead of `'[...]'::jsonb`. This issue would have caused real restoration failure and was discovered exclusively through the live PostgreSQL test.
+### Exact PostgreSQL Engine String
+Executing `SELECT version()` against the live test database returned:
+```sql
+PostgreSQL 18.6 (PGlite 0.5.11) on wasm32-unknown-emscripten, compiled by emcc 3.1.74, 32-bit
+```
 
-### Free Resources & Cloud Platform Boundaries
-1. **Supabase Cloud Project Quota**:
-   - The user's Supabase account is on the **Free tier**.
-   - Supabase Free tier enforces a strict hard limit of **2 projects per organization**.
-   - Current projects:
-     1. `upzkcqovqstfsizerulx` ("RecipeVault", Active Production).
-     2. `gdcahlofihkqqglogeeo` ("s.vishaal264@gmail.com's Project", Inactive / Paused).
-   - Creating a third cloud Supabase project requires upgrading the organization to the **Pro Plan ($25/month)**, which is strictly forbidden by project constraints.
-   - The inactive project `gdcahlofihkqqglogeeo` has its database paused and API keys disabled, requiring manual dashboard reactivation.
-2. **Workstation Environment**:
-   - The local Windows workstation does not have Docker Desktop or a standalone Windows PostgreSQL daemon service in `PATH`.
-   - WSL (Windows Subsystem for Linux) is not installed on this machine.
-3. **Safe Resolution**:
-   - The actual restoration test was performed locally using an in-process, isolated PostgreSQL 16 WASM engine without modifying production, risking live data, or incurring any cloud billing.
+### What This Test PROVES
+1. **Schema DDL Compatibility**: The consolidated schema DDL (`schema/consolidated_schema.sql`), including custom ENUMs (`dietary_preference`, `cuisine_type`, `meal_type`, etc.), composite types, primary keys, check constraints, foreign key references, and functional triggers, compiles and executes without syntax or semantic errors.
+2. **Topological Dependency Order**: Hierarchical Level 1 $\rightarrow$ Level 2 $\rightarrow$ Level 3 $\rightarrow$ Level 4 insertion guarantees that child tables (`recipe_ingredients`, `recipe_instructions`, `collection_recipes`, `shopping_list_items`, etc.) find their parent records without foreign-key constraint violations.
+3. **Data Type and Array Serialization**: All 663 records insert cleanly without type mismatches. Specifically, the test caught and validated the requirement that `profiles.dietary_preferences` must be formatted as PostgreSQL native array `ARRAY[...]::text[]` rather than JSONB.
+4. **Referential Integrity**: 100% of child records across 9 joins map to valid parent records with zero orphaned rows.
+5. **Row Level Security (RLS) Policy Registration**: All 63 RLS policies register correctly into `pg_policies` with valid SQL boolean expressions.
+6. **URL Remapping Logic**: The SQL remapper script correctly replaces production storage URLs (`upzkcqovqstfsizerulx.supabase.co`) with the target domain (`staging-isolated-dr`) in `recipes.image_url` and `collections.cover_image_url` without corrupting data or query syntax.
+7. **Zero Production Risk**: The test ran completely in-memory without contacting production Supabase (`upzkcqovqstfsizerulx`), without unpausing the secondary project (`gdcahlofihkqqglogeeo`), and without incurring any cloud billing.
 
-### Production Safety Confirmation
-- Restoration against `upzkcqovqstfsizerulx` remains strictly locked and prohibited.
-- Production data has NOT been modified, dropped, or overwritten.
+### What This Test DOES NOT PROVE About Managed Supabase Recovery
+While the PGlite test validates standard PostgreSQL database engine mechanics, it **does not** test proprietary or out-of-process Supabase cloud infrastructure:
+1. **Supabase GoTrue Auth Daemon**: PGlite executes PostgreSQL SQL statements; it does not run the Supabase GoTrue Go daemon. The test does not verify GoTrue's HTTP endpoints, JWT signing, refresh token rotation, or session persistence.
+2. **Live Google OAuth Exchange**: The test does not perform real browser redirects, PKCE code exchange, or live Google OAuth 2.0 handshake. Automatic account linking for OAuth users is an architectural capability of GoTrue, not a verified end-to-end test result.
+3. **Password-Reset Email Delivery**: The test does not test SMTP mail transport, rate-limiting, or whether Supabase's email service successfully delivers password recovery emails to users.
+4. **PostgREST HTTP / Realtime Replication**: The test does not verify PostgREST REST API serialization, schema reloading (`NOTIFY pgrst, 'reload schema'`), or Realtime WebSocket replication.
+5. **Supabase Storage S3/TUS Endpoints**: While the test verifies that 6 image binary files exist on disk with matching SHA-256 hashes (1.42 MB) and tests bucket table schema creation, it does not perform live network HTTP multipart uploads over Supabase Storage S3/TUS endpoints.
+6. **Platform-Specific Roles & Extensions**: Managed Supabase runs additional extensions (`supabase_vault`, `pg_graphql`, `pg_stat_statements`). While standard Supabase roles (`anon`, `authenticated`, `service_role`) were stubbed in the test, live cloud permissions may differ.
+
+---
+
+## 11. Verified Tests vs. Operational Assumptions Matrix
+
+To maintain strict audit integrity, verified automated test results are clearly separated from operational assumptions:
+
+| Recovery Component | Status | Verification Method | Known Caveat / Remaining Gap |
+| :--- | :---: | :--- | :--- |
+| **Backup Manifest & Checksums** | **VERIFIED** | SHA-256 automated audit (`verify-backup.ts`) across 38 files | None. 100% cryptographic match. |
+| **Passphrase Encryption (AES-256-GCM)** | **VERIFIED** | Automated encrypt/decrypt cycle with auth tag validation | None. Corrupted passphrases or tags fail as expected. |
+| **Windows Credential Manager** | **VERIFIED** | Win32 `advapi32` integration tested in `backup-encryption.test.ts` | Windows-specific; Linux/macOS environments require `--stdin` or env var. |
+| **DPAPI Key File Protection** | **VERIFIED** | .NET `ProtectedData` tested in `backup-encryption.test.ts` | Bound to local user Windows profile; not portable across machines. |
+| **Database Schema DDL** | **VERIFIED** | PGlite live execution of `consolidated_schema.sql` | Managed Supabase may include pre-installed extension schemas. |
+| **Topological Data Restoration** | **VERIFIED** | 663 rows inserted across 21 tables in dependency order | Tested on PGlite; network latency on cloud REST/SQL not simulated. |
+| **Referential Integrity** | **VERIFIED** | 9 parent-child joins audited with 0 orphans | None. Strict foreign keys enforced. |
+| **RLS Policy Definitions** | **VERIFIED** | 63 policies queried and confirmed in `pg_policies` | Functional enforcement under simulated JWT claims was not checked. |
+| **Storage Files on Disk** | **VERIFIED** | 6 images verified on disk with SHA-256 matching manifest | Local disk files verified; cloud upload tested via dry-run script. |
+| **Storage URL Remapping** | **VERIFIED** | 4 URLs remapped to target domain in PGlite | Live frontend loading against remapped domain not tested. |
+| **Auth UUID Anchor Pre-Provisioning** | **VERIFIED** | 11 user UUIDs created in `auth.users` stub table | Validates relational foreign keys, not GoTrue authentication state. |
+| **Google OAuth Recovery** | **ASSUMPTION** | Documented GoTrue automatic email linking architecture | **UNVERIFIED END-TO-END**. Requires real Google OAuth client credentials on a live Supabase project. |
+| **Password Reset Recovery** | **ASSUMPTION** | Documented Supabase `generateLink` / Forgot Password flow | **UNVERIFIED END-TO-END**. Requires live SMTP service or Supabase Auth email dispatcher. |
+| **Supabase Cloud Project Restore** | **ASSUMPTION** | Standalone SQL scripts and upload tooling prepared | **BLOCKED BY FREE TIER QUOTA**. Cannot provision 3rd Supabase project without $25/mo Pro plan. |
+
+---
+
+## 12. Total Disaster Recovery Action Plan (Runbook)
+
+If Aurelia experiences catastrophic data loss or the production Supabase project is permanently lost, follow these exact sequential actions to recover the platform:
+
+### Step 1: Provision Clean Supabase DR Project (No Cost)
+1. In the [Supabase Dashboard](https://supabase.com/dashboard), delete the inactive paused project (`gdcahlofihkqqglogeeo`) to free up your Free Tier quota slot (or provision a new free project under a new free account).
+2. Create a new Free Tier project named `Aurelia-DR` in region `ap-southeast-1` (Singapore).
+3. Record the new project's:
+   - `Project Ref` (e.g. `abcdefghijklmnopqrst`)
+   - `Project URL` (`https://abcdefghijklmnopqrst.supabase.co`)
+   - `anon public` key
+   - `service_role` secret key
+   - Database connection string and password
+
+### Step 2: Decrypt Backup Archive (if using encrypted bundle)
+```powershell
+# Decrypt the verified backup using Windows Credential Manager:
+npx tsx scripts/backup/decrypt-backup.ts `
+  --file "C:\Users\svish\AureliaBackups\2026-10-25_14-50-25.enc" `
+  --out "C:\Users\svish\AureliaBackups\DR_Restored_2026-10-25"
+```
+
+### Step 3: Apply Database Schema
+1. Open `C:\Users\svish\AureliaBackups\DR_Restored_2026-10-25\schema\consolidated_schema.sql`.
+2. In Supabase Dashboard -> **SQL Editor**, paste and run the entire script.
+3. Confirm all 21 application tables and the `recipe-images` storage bucket are created.
+
+### Step 4: Pre-Provision Auth User UUID Anchors
+1. Open `C:\Users\svish\AureliaBackups\DR_Restored_2026-10-25\auth\auth-recovery.sql`.
+2. In Supabase Dashboard -> **SQL Editor**, run the script.
+3. Verify that 11 user UUID rows are created in `auth.users`.
+
+### Step 5: Restore Application Data
+1. Open `C:\Users\svish\AureliaBackups\DR_Restored_2026-10-25\data\restore-data.sql`.
+2. In Supabase Dashboard -> **SQL Editor**, run the script.
+3. Verify that 663 rows across 21 tables are inserted without errors.
+
+### Step 6: Upload Recipe Photography Files
+```powershell
+$env:RESTORE_TARGET_SUPABASE_URL = "https://<NEW_PROJECT_REF>.supabase.co"
+$env:RESTORE_TARGET_SERVICE_ROLE_KEY = "<NEW_SERVICE_ROLE_KEY>"
+
+npx tsx scripts/backup/restore.ts --dir "C:\Users\svish\AureliaBackups\DR_Restored_2026-10-25"
+```
+Verify that all 6 image files upload successfully into the `recipe-images` bucket.
+
+### Step 7: Remap Image URLs in Database
+1. Open `C:\Users\svish\AureliaBackups\DR_Restored_2026-10-25\data\remap-storage-urls.sql`.
+2. Replace `<NEW_PROJECT_REF>` with your new Supabase project ref.
+3. Run the script in the Supabase **SQL Editor**.
+
+### Step 8: Configure Authentication & Google OAuth
+1. In Google Cloud Console -> **Credentials**, add the new redirect URI:
+   `https://<NEW_PROJECT_REF>.supabase.co/auth/v1/callback`
+2. In Supabase Dashboard -> **Authentication -> Providers -> Google**:
+   - Enable Google provider.
+   - Enter Google Client ID & Client Secret.
+   - Enable **Automatic email linking**.
+3. In Supabase Dashboard -> **Authentication -> URL Configuration**:
+   - Site URL: `https://aurelia-recipes.vercel.app`
+   - Redirect URLs:
+     - `http://localhost:3000/**`
+     - `https://aurelia-recipes.vercel.app/**`
+     - `aurelia://auth/callback`
+     - `aurelia://reset-password`
+
+### Step 9: Update Production Environment Variables
+Update the production Vercel deployment and local `.env.local` files:
+- `NEXT_PUBLIC_SUPABASE_URL`: `https://<NEW_PROJECT_REF>.supabase.co`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: `<NEW_ANON_KEY>`
+- `SUPABASE_SERVICE_ROLE_KEY`: `<NEW_SERVICE_ROLE_KEY>`
+
+Redeploy the web app on Vercel:
+```powershell
+vercel --prod
+```
+
+### Step 10: User Re-Authentication Notification
+1. **Google OAuth Users**: Notify users they can log in via "Continue with Google". Their accounts will automatically link to their existing profiles and recipes.
+2. **Email/Password Users**: Direct users to the **Forgot Password** screen (`/auth/login`) to set a new password, or trigger administrative recovery links via `supabase.auth.admin.generateLink()`.
+

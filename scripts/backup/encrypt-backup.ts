@@ -174,7 +174,7 @@ if (require.main === module) {
 
   const outputPath = outIndex !== -1 ? args[outIndex + 1] : undefined
 
-  resolvePassphrase(args, 'Enter backup passphrase to encrypt: ')
+  resolvePassphrase(args, 'Enter backup passphrase to encrypt: ', targetDir)
     .then((passphrase) => {
       encryptBackupDirectory(targetDir, passphrase, outputPath)
       process.exit(0)

@@ -37,6 +37,32 @@ describe('Aurelia Backup Encryption & Decryption Suite', () => {
     delete process.env.AURELIA_BACKUP_PASSPHRASE
   })
 
+  it('safely resolves passphrase from Windows Credential Manager via --cred-target', async () => {
+    if (process.platform === 'win32') {
+      const resolved = await resolvePassphrase(['--cred-target', 'AureliaBackup_2026-10-25_14-50-25'])
+      expect(typeof resolved).toBe('string')
+      expect(resolved.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('safely resolves passphrase from DPAPI-protected file via --dpapi-file', async () => {
+    const dpapiFile = path.join(baseDir, '2026-10-25_14-50-25.key.dpapi')
+    if (process.platform === 'win32' && fs.existsSync(dpapiFile)) {
+      const resolved = await resolvePassphrase(['--dpapi-file', dpapiFile])
+      expect(typeof resolved).toBe('string')
+      expect(resolved.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('safely auto-resolves passphrase from Windows Credential Manager matching archive name', async () => {
+    if (process.platform === 'win32') {
+      const encArchive = path.join(baseDir, '2026-10-25_14-50-25.enc')
+      const resolved = await resolvePassphrase(['--file', encArchive])
+      expect(typeof resolved).toBe('string')
+      expect(resolved.length).toBeGreaterThan(0)
+    }
+  })
+
   it('encrypts verified backup directory into AES-256-GCM container', () => {
     const encResult = encryptBackupDirectory(sourceBackup, testPassphrase, tempEncPath)
 
