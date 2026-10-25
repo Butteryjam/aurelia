@@ -4,6 +4,8 @@ import {
   computeSha256,
   formatSqlValue,
   generateSqlInserts,
+  generateAuthRecoverySql,
+  generateStorageRemapSql,
 } from '../../scripts/backup/backup'
 import { verifyBackup } from '../../scripts/backup/verify-backup'
 
@@ -116,7 +118,7 @@ describe('Aurelia Backup & Disaster Recovery Workflow Suite', () => {
       expect(sql).toBe('-- Table: public.ingredients (0 rows)\n')
     })
 
-    it('generates well-formed INSERT statements for rows', () => {
+    it('generates well-formed INSERT statements with ON CONFLICT DO UPDATE for entity tables', () => {
       const rows = [
         { id: '111', title: 'French Toast', is_public: true, servings: 2 },
         { id: '222', title: "Baker's Sourdough", is_public: false, servings: 4 },
@@ -126,11 +128,54 @@ describe('Aurelia Backup & Disaster Recovery Workflow Suite', () => {
       expect(sql).toContain('INSERT INTO public.recipes ("id", "title", "is_public", "servings")')
       expect(sql).toContain("('111', 'French Toast', TRUE, 2)")
       expect(sql).toContain("('222', 'Baker''s Sourdough', FALSE, 4)")
+      expect(sql).toContain('ON CONFLICT ("id") DO UPDATE SET')
+    })
+
+    it('omits GENERATED ALWAYS columns (e.g. recipes.fts) from the INSERT column list', () => {
+      const rows = [
+        { id: '333', title: 'Curry', fts: "'curri':1", is_public: true },
+      ]
+      const sql = generateSqlInserts('recipes', rows)
+
+      expect(sql).toContain('"id", "title", "is_public"')
+      expect(sql).not.toContain('"fts"')
+    })
+
+    it('generates ON CONFLICT DO NOTHING for composite primary key junctions', () => {
+      const rows = [{ collection_id: 'col-1', recipe_id: 'rec-1' }]
+      const sql = generateSqlInserts('collection_recipes', rows)
+
+      expect(sql).toContain('INSERT INTO public.collection_recipes ("collection_id", "recipe_id")')
+      expect(sql).toContain('ON CONFLICT ("collection_id", "recipe_id") DO NOTHING;')
     })
   })
 
-  // ─── 5. Backup Verification Engine ───────────────────────────────────
-  describe('5. Backup Verification Engine (verifyBackup)', () => {
+  // ─── 5. Auth Recovery & Storage Remap SQL Generators ─────────────────
+  describe('5. Auth Recovery & Storage Remap SQL Generators', () => {
+    it('generates auth-recovery.sql pre-provisioning anchors with exact user UUIDs', () => {
+      const users = [
+        { id: 'user-uuid-1', email: 'chef@example.com', role: 'authenticated' },
+      ]
+      const sql = generateAuthRecoverySql(users)
+
+      expect(sql).toContain('INSERT INTO auth.users')
+      expect(sql).toContain("'user-uuid-1'")
+      expect(sql).toContain("'chef@example.com'")
+      expect(sql).toContain('ON CONFLICT (id) DO UPDATE SET')
+    })
+
+    it('generates storage remap SQL that rewrites project domains', () => {
+      const sql = generateStorageRemapSql('old-project-ref', 'new-project-ref')
+
+      expect(sql).toContain('UPDATE public.recipes')
+      expect(sql).toContain("replace(image_url, 'https://old-project-ref.supabase.co', 'https://new-project-ref.supabase.co')")
+      expect(sql).toContain('UPDATE public.collections')
+      expect(sql).toContain('UPDATE public.recipe_versions')
+    })
+  })
+
+  // ─── 6. Backup Verification Engine ───────────────────────────────────
+  describe('6. Backup Verification Engine (verifyBackup)', () => {
     it('successfully verifies the active local backup in %USERPROFILE%/AureliaBackups', () => {
       const report = verifyBackup()
 
@@ -138,6 +183,8 @@ describe('Aurelia Backup & Disaster Recovery Workflow Suite', () => {
       expect(report.totalTablesChecked).toBe(21)
       expect(report.totalRowsVerified).toBeGreaterThan(0)
       expect(report.storageFilesVerified).toBeGreaterThan(0)
+      expect(report.storageReferencesVerified).toBeGreaterThan(0)
+      expect(report.ownershipReferencesVerified).toBeGreaterThan(0)
       expect(report.missingFiles).toHaveLength(0)
       expect(report.checksumMismatches).toHaveLength(0)
       expect(report.errors).toHaveLength(0)

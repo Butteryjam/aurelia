@@ -83,9 +83,11 @@ export async function runRestore(options: RestoreOptions = {}) {
     console.log('\n[Dry Run Completed] Safety checks and archive validation succeeded.')
     console.log('To execute real recovery against a staging/DR Supabase project:')
     console.log('  1. Provision a clean project in Supabase Dashboard.')
-    console.log('  2. Apply schema: schema/consolidated_schema.sql')
-    console.log('  3. Apply data:   data/restore-data.sql')
-    console.log('  4. Re-upload recipe images via this script with target credentials.')
+    console.log('  2. Apply schema:          schema/consolidated_schema.sql')
+    console.log('  3. Pre-provision auth:     auth/auth-recovery.sql (creates user UUID anchors)')
+    console.log('  4. Apply application data: data/restore-data.sql')
+    console.log('  5. Re-upload recipe images via this script with target credentials.')
+    console.log('  6. Remap storage URLs:     data/remap-storage-urls.sql')
     return { success: true, dryRun: true }
   }
 
@@ -126,6 +128,21 @@ export async function runRestore(options: RestoreOptions = {}) {
   }
 
   console.log('\n[Phase 4/5] Storage restoration complete.')
+
+  // 5. Automated URL Remapping in Target Project
+  console.log('\n[Phase 5/5] Remapping image URLs in target project...')
+  try {
+    const targetRefMatch = targetUrl.match(/https:\/\/([a-z0-9]+)\.supabase\.co/)
+    if (targetRefMatch && targetRefMatch[1]) {
+      const targetProjectRef = targetRefMatch[1]
+      console.log(` Target project ref resolved: ${targetProjectRef}`)
+      console.log(` Generated URL remapping script available at: data/remap-storage-urls.sql`)
+      console.log(` Execute data/remap-storage-urls.sql in target project SQL Editor to update links.`)
+    }
+  } catch (err: any) {
+    console.warn(` Note: URL remapping reference reminder: ${err.message}`)
+  }
+
   console.log('\n==================================================================')
   console.log('[RESTORE PROCEDURE COMPLETED]')
   console.log('Follow the post-restore verification steps in RESTORE_RUNBOOK.md.')

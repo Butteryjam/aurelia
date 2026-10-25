@@ -33,6 +33,8 @@ export interface VerificationReport {
   totalTablesChecked: number
   totalRowsVerified: number
   storageFilesVerified: number
+  storageReferencesVerified: number
+  ownershipReferencesVerified: number
   checksumMismatches: string[]
   missingFiles: string[]
   errors: string[]
@@ -73,6 +75,8 @@ export function verifyBackup(targetDir?: string): VerificationReport {
     totalTablesChecked: 0,
     totalRowsVerified: 0,
     storageFilesVerified: 0,
+    storageReferencesVerified: 0,
+    ownershipReferencesVerified: 0,
     checksumMismatches: [],
     missingFiles: [],
     errors: [],
@@ -97,10 +101,10 @@ export function verifyBackup(targetDir?: string): VerificationReport {
   report.manifestTimestamp = manifest.backup_timestamp || manifest.created_at
   report.sourceProject = `${manifest.source_project?.name} (${manifest.source_project?.ref})`
 
-  console.log(`[1/5] Manifest parsed: created ${report.manifestTimestamp} for ${report.sourceProject}`)
+  console.log(`[1/7] Manifest parsed: created ${report.manifestTimestamp} for ${report.sourceProject}`)
 
   // 2. Verify all files listed in manifest
-  console.log(`[2/5] Cryptographically verifying SHA-256 hashes for ${Object.keys(manifest.files).length} files...`)
+  console.log(`[2/7] Cryptographically verifying SHA-256 hashes for ${Object.keys(manifest.files).length} files...`)
   for (const [relPath, fileMeta] of Object.entries<any>(manifest.files)) {
     const fullPath = path.join(backupDir, relPath)
     report.totalFilesChecked++
@@ -131,7 +135,7 @@ export function verifyBackup(targetDir?: string): VerificationReport {
   }
 
   // 3. Verify all 21 application tables in data/
-  console.log(`[3/5] Verifying 21 application data tables...`)
+  console.log(`[3/7] Verifying 21 application data tables...`)
   let totalRows = 0
   for (const tableName of APPLICATION_TABLES) {
     report.totalTablesChecked++
@@ -163,21 +167,22 @@ export function verifyBackup(targetDir?: string): VerificationReport {
   console.log(` -> Verified 21 tables containing ${totalRows} total records.`)
 
   // 4. Verify Storage Objects
-  console.log(`[4/5] Verifying recipe-images storage objects...`)
+  console.log(`[4/7] Verifying recipe-images storage objects on disk...`)
   const storageInventoryPath = path.join(backupDir, 'storage', 'storage-inventory.json')
+  let storageObjects: any[] = []
   if (fs.existsSync(storageInventoryPath)) {
     try {
       const inventory = JSON.parse(fs.readFileSync(storageInventoryPath, 'utf8'))
-      const objects = inventory.objects || []
-      report.storageFilesVerified = objects.length
+      storageObjects = inventory.objects || []
+      report.storageFilesVerified = storageObjects.length
 
-      for (const obj of objects) {
+      for (const obj of storageObjects) {
         const localPath = path.join(backupDir, obj.local_path)
         if (!fs.existsSync(localPath)) {
           report.missingFiles.push(obj.local_path)
         }
       }
-      console.log(` -> Verified ${objects.length} image objects (${(inventory.total_bytes / 1024 / 1024).toFixed(2)} MB).`)
+      console.log(` -> Verified ${storageObjects.length} image objects (${(inventory.total_bytes / 1024 / 1024).toFixed(2)} MB).`)
     } catch (err: any) {
       report.errors.push(`Failed to parse storage-inventory.json: ${err.message}`)
     }
@@ -186,16 +191,96 @@ export function verifyBackup(targetDir?: string): VerificationReport {
   }
 
   // 5. Verify Auth Inventory Security (ensure no passwords leaked)
-  console.log(`[5/5] Auditing security compliance of auth inventory...`)
+  console.log(`[5/7] Auditing security compliance of auth inventory...`)
   const authInventoryPath = path.join(backupDir, 'auth', 'users-inventory.json')
+  let authUsers: any[] = []
   if (fs.existsSync(authInventoryPath)) {
-    const content = fs.readFileSync(authInventoryPath, 'utf8')
-    if (content.includes('encrypted_password') || content.includes('password_hash')) {
-      report.errors.push('CRITICAL SECURITY VIOLATION: Auth inventory contains password fields!')
-    } else {
-      console.log(` -> Auth inventory strictly adheres to zero-credential privacy rules.`)
+    try {
+      const content = fs.readFileSync(authInventoryPath, 'utf8')
+      if (content.includes('encrypted_password') || content.includes('password_hash')) {
+        report.errors.push('CRITICAL SECURITY VIOLATION: Auth inventory contains password fields!')
+      } else {
+        console.log(` -> Auth inventory strictly adheres to zero-credential privacy rules.`)
+      }
+      const parsed = JSON.parse(content)
+      authUsers = parsed.users || []
+    } catch (err: any) {
+      report.errors.push(`Failed to parse auth inventory: ${err.message}`)
+    }
+  } else {
+    report.missingFiles.push('auth/users-inventory.json')
+  }
+
+  // 6. Verify Database Image References vs Storage Inventory
+  console.log(`[6/7] Cross-verifying database image URLs against storage inventory...`)
+  const storageObjectPaths = new Set(storageObjects.map((o) => o.path))
+  let storageRefsCount = 0
+
+  const recipesJsonPath = path.join(backupDir, 'data', 'recipes.json')
+  if (fs.existsSync(recipesJsonPath)) {
+    const recipes = JSON.parse(fs.readFileSync(recipesJsonPath, 'utf8'))
+    for (const recipe of recipes) {
+      if (recipe.image_url && recipe.image_url.includes('/recipe-images/')) {
+        storageRefsCount++
+        const rel = recipe.image_url.split('/recipe-images/')[1]
+        if (!storageObjectPaths.has(rel)) {
+          report.errors.push(`Recipe "${recipe.title}" (${recipe.id}) references unbacked image: ${rel}`)
+        }
+      }
     }
   }
+
+  const collectionsJsonPath = path.join(backupDir, 'data', 'collections.json')
+  if (fs.existsSync(collectionsJsonPath)) {
+    const collections = JSON.parse(fs.readFileSync(collectionsJsonPath, 'utf8'))
+    for (const col of collections) {
+      if (col.cover_image_url && col.cover_image_url.includes('/recipe-images/')) {
+        storageRefsCount++
+        const rel = col.cover_image_url.split('/recipe-images/')[1]
+        if (!storageObjectPaths.has(rel)) {
+          report.errors.push(`Collection (${col.id}) references unbacked cover image: ${rel}`)
+        }
+      }
+    }
+  }
+  report.storageReferencesVerified = storageRefsCount
+  console.log(` -> Cross-verified ${storageRefsCount} database image references against storage inventory.`)
+
+  // 7. Verify Ownership Integrity against Auth Inventory
+  console.log(`[7/7] Cross-verifying record ownership against auth users inventory...`)
+  const authUserIds = new Set(authUsers.map((u) => u.id))
+  let ownershipRefsCount = 0
+
+  const userOwnedTables = [
+    'profiles',
+    'recipes',
+    'collections',
+    'shopping_lists',
+    'meal_plans',
+    'user_preferences',
+    'ai_conversations',
+    'ai_rate_limits',
+  ]
+
+  for (const tableName of userOwnedTables) {
+    const tablePath = path.join(backupDir, 'data', `${tableName}.json`)
+    if (fs.existsSync(tablePath)) {
+      const rows = JSON.parse(fs.readFileSync(tablePath, 'utf8'))
+      for (const row of rows) {
+        const ownerId = row.user_id || row.id
+        if (ownerId) {
+          ownershipRefsCount++
+          if (!authUserIds.has(ownerId)) {
+            report.errors.push(
+              `Orphaned record in table "${tableName}" (${row.id}): owner ${ownerId} not found in auth inventory`
+            )
+          }
+        }
+      }
+    }
+  }
+  report.ownershipReferencesVerified = ownershipRefsCount
+  console.log(` -> Verified ${ownershipRefsCount} user-owned records match valid auth anchors.`)
 
   // Determine overall status
   report.success =

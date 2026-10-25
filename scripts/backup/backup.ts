@@ -64,6 +64,42 @@ export const APPLICATION_TABLES = [
 export type ApplicationTableName = (typeof APPLICATION_TABLES)[number]
 
 /**
+ * Primary key definition map for all 21 application tables.
+ * Used to construct idempotent ON CONFLICT clauses during disaster recovery.
+ */
+export const TABLE_PRIMARY_KEYS: Record<ApplicationTableName, string[]> = {
+  profiles: ['id'],
+  ingredients: ['id'],
+  tags: ['id'],
+  user_preferences: ['user_id'],
+  ai_rate_limits: ['id'],
+  recipes: ['id'],
+  collections: ['id'],
+  shopping_lists: ['id'],
+  meal_plans: ['id'],
+  recipe_ingredients: ['id'],
+  recipe_instructions: ['id'],
+  collection_recipes: ['collection_id', 'recipe_id'],
+  recipe_tags: ['recipe_id', 'tag_id'],
+  favorites: ['user_id', 'recipe_id'],
+  shopping_list_items: ['id'],
+  cooking_sessions: ['id'],
+  recipe_versions: ['id'],
+  recipe_sources: ['id'],
+  ai_conversations: ['id'],
+  meal_plan_items: ['id'],
+  ai_messages: ['id'],
+}
+
+/**
+ * Tables containing PostgreSQL 'GENERATED ALWAYS AS (...) STORED' columns.
+ * These columns cannot be manually inserted and must be omitted from INSERT statements.
+ */
+export const GENERATED_ALWAYS_COLUMNS: Partial<Record<ApplicationTableName, string[]>> = {
+  recipes: ['fts'],
+}
+
+/**
  * Computes the SHA-256 hash of a file or buffer.
  */
 export function computeSha256(data: Buffer | string): string {
@@ -143,14 +179,20 @@ export function formatSqlValue(val: any): string {
 }
 
 /**
- * Generates SQL INSERT statements for table rows.
+ * Generates safe, dependency-ordered, idempotent SQL INSERT statements.
+ * - Omits GENERATED ALWAYS columns (e.g. recipes.fts).
+ * - Appends ON CONFLICT DO UPDATE (or DO NOTHING for junctions) to ensure
+ *   referential integrity without suppressing triggers or session_replication_role.
  */
-export function generateSqlInserts(tableName: string, rows: any[]): string {
+export function generateSqlInserts(tableName: ApplicationTableName, rows: any[]): string {
   if (!rows || rows.length === 0) {
     return `-- Table: public.${tableName} (0 rows)\n`
   }
 
-  const columns = Object.keys(rows[0])
+  // Filter out any GENERATED ALWAYS columns that PostgreSQL calculates automatically
+  const generatedCols = GENERATED_ALWAYS_COLUMNS[tableName] || []
+  const allColumns = Object.keys(rows[0])
+  const columns = allColumns.filter((c) => !generatedCols.includes(c))
   const colNames = columns.map((c) => `"${c}"`).join(', ')
 
   let sql = `-- Table: public.${tableName} (${rows.length} rows)\n`
@@ -161,7 +203,113 @@ export function generateSqlInserts(tableName: string, rows: any[]): string {
     return `  (${values.join(', ')})`
   })
 
-  sql += valueRows.join(',\n') + ';\n\n'
+  sql += valueRows.join(',\n')
+
+  // Build idempotent ON CONFLICT clause
+  const pkCols = TABLE_PRIMARY_KEYS[tableName]
+  if (pkCols && pkCols.length > 0) {
+    const conflictTarget = pkCols.map((c) => `"${c}"`).join(', ')
+    const nonPkCols = columns.filter((c) => !pkCols.includes(c))
+
+    if (nonPkCols.length > 0) {
+      const updateSet = nonPkCols.map((c) => `  "${c}" = EXCLUDED."${c}"`).join(',\n')
+      sql += `\nON CONFLICT (${conflictTarget}) DO UPDATE SET\n${updateSet};\n\n`
+    } else {
+      sql += `\nON CONFLICT (${conflictTarget}) DO NOTHING;\n\n`
+    }
+  } else {
+    sql += ';\n\n'
+  }
+
+  return sql
+}
+
+/**
+ * Generates SQL statements to pre-provision auth.users anchors
+ * using authoritative user IDs, emails, and metadata from auth inventory,
+ * strictly omitting passwords and tokens.
+ */
+export function generateAuthRecoverySql(users: any[]): string {
+  if (!users || users.length === 0) {
+    return '-- No auth users to pre-provision\n'
+  }
+
+  let sql = `-- ===================================================================\n`
+  sql += `-- Aurelia Auth User Recovery Anchors\n`
+  sql += `-- Pre-provisions user records into auth.users preserving original UUIDs\n`
+  sql += `-- so all public schema foreign keys (profiles, recipes, etc.) succeed.\n`
+  sql += `--\n`
+  sql += `-- Security Compliance:\n`
+  sql += `--  - Password hashes and recovery tokens are STRICTLY OMITTED.\n`
+  sql += `--  - Users regain access via Google OAuth (auto-linking by email)\n`
+  sql += `--    or via self-service / admin-initiated Password Reset.\n`
+  sql += `-- ===================================================================\n\n`
+
+  sql += `INSERT INTO auth.users (\n`
+  sql += `  instance_id,\n`
+  sql += `  id,\n`
+  sql += `  aud,\n`
+  sql += `  role,\n`
+  sql += `  email,\n`
+  sql += `  encrypted_password,\n`
+  sql += `  email_confirmed_at,\n`
+  sql += `  raw_app_meta_data,\n`
+  sql += `  raw_user_meta_data,\n`
+  sql += `  created_at,\n`
+  sql += `  updated_at,\n`
+  sql += `  confirmation_token,\n`
+  sql += `  recovery_token\n`
+  sql += `)\nVALUES\n`
+
+  const valueRows = users.map((u) => {
+    const id = formatSqlValue(u.id)
+    const email = formatSqlValue(u.email)
+    const role = formatSqlValue(u.role || 'authenticated')
+    const appMeta = formatSqlValue(u.raw_app_meta_data || {})
+    const userMeta = formatSqlValue(u.raw_user_meta_data || {})
+    const createdAt = formatSqlValue(u.created_at || new Date().toISOString())
+    return `  (\n    '00000000-0000-0000-0000-000000000000',\n    ${id},\n    'authenticated',\n    ${role},\n    ${email},\n    '',\n    now(),\n    ${appMeta},\n    ${userMeta},\n    ${createdAt},\n    now(),\n    '',\n    ''\n  )`
+  })
+
+  sql += valueRows.join(',\n')
+  sql += `\nON CONFLICT (id) DO UPDATE SET\n`
+  sql += `  email = EXCLUDED.email,\n`
+  sql += `  raw_app_meta_data = EXCLUDED.raw_app_meta_data,\n`
+  sql += `  raw_user_meta_data = EXCLUDED.raw_user_meta_data,\n`
+  sql += `  updated_at = now();\n\n`
+
+  return sql
+}
+
+/**
+ * Generates SQL script to remap Supabase storage public URLs across
+ * tables containing image references from the source project to target project.
+ */
+export function generateStorageRemapSql(
+  sourceRef: string,
+  targetRefPlaceholder = '<NEW_PROJECT_REF>'
+): string {
+  let sql = `-- ===================================================================\n`
+  sql += `-- Aurelia Storage URL Remapping Script\n`
+  sql += `-- Updates public storage URLs from source project to restored target project.\n`
+  sql += `-- Replace ${targetRefPlaceholder} with your target Supabase project reference.\n`
+  sql += `-- ===================================================================\n\n`
+
+  sql += `-- 1. Remap Recipe image URLs\n`
+  sql += `UPDATE public.recipes\n`
+  sql += `SET image_url = replace(image_url, 'https://${sourceRef}.supabase.co', 'https://${targetRefPlaceholder}.supabase.co')\n`
+  sql += `WHERE image_url LIKE '%${sourceRef}.supabase.co%';\n\n`
+
+  sql += `-- 2. Remap Collection cover image URLs\n`
+  sql += `UPDATE public.collections\n`
+  sql += `SET cover_image_url = replace(cover_image_url, 'https://${sourceRef}.supabase.co', 'https://${targetRefPlaceholder}.supabase.co')\n`
+  sql += `WHERE cover_image_url LIKE '%${sourceRef}.supabase.co%';\n\n`
+
+  sql += `-- 3. Remap Recipe Versions snapshot JSONBs\n`
+  sql += `UPDATE public.recipe_versions\n`
+  sql += `SET snapshot = replace(snapshot::text, 'https://${sourceRef}.supabase.co', 'https://${targetRefPlaceholder}.supabase.co')::jsonb\n`
+  sql += `WHERE snapshot::text LIKE '%${sourceRef}.supabase.co%';\n\n`
+
   return sql
 }
 
@@ -385,8 +533,9 @@ export async function runBackup(options: BackupOptions = {}): Promise<BackupResu
   let restoreDataSql = `-- ===================================================================\n`
   restoreDataSql += `-- Aurelia Data Restore Script (Foreign-Key Dependency Ordered)\n`
   restoreDataSql += `-- Generated at: ${new Date().toISOString()}\n`
+  restoreDataSql += `-- Target: Standard PostgreSQL connection with full constraint validation\n`
+  restoreDataSql += `-- Note: Does NOT require session_replication_role or superuser privileges.\n`
   restoreDataSql += `-- ===================================================================\n\n`
-  restoreDataSql += `SET session_replication_role = replica;\n\n`
 
   const exportedTableCounts: Record<string, number> = {}
 
@@ -406,11 +555,17 @@ export async function runBackup(options: BackupOptions = {}): Promise<BackupResu
     restoreDataSql += generateSqlInserts(tableName, tableData)
   }
 
-  restoreDataSql += `SET session_replication_role = DEFAULT;\n`
   const restoreSqlPath = path.join(dataDir, 'restore-data.sql')
   fs.writeFileSync(restoreSqlPath, restoreDataSql, 'utf8')
   registerFile('data/restore-data.sql', restoreSqlPath)
-  console.log(` -> Generated data/restore-data.sql (all 21 tables)`)
+  console.log(` -> Generated data/restore-data.sql (all 21 tables in dependency order)`)
+
+  // Write storage URL remapping script
+  const remapSql = generateStorageRemapSql(EXPECTED_PROJECT_REF)
+  const remapSqlPath = path.join(dataDir, 'remap-storage-urls.sql')
+  fs.writeFileSync(remapSqlPath, remapSql, 'utf8')
+  registerFile('data/remap-storage-urls.sql', remapSqlPath)
+  console.log(` -> Generated data/remap-storage-urls.sql`)
 
   // 7. Download Recipe Images and Build Storage Inventory
   console.log('\n[7/7] Downloading storage objects and writing manifests...')
@@ -495,6 +650,12 @@ export async function runBackup(options: BackupOptions = {}): Promise<BackupResu
   )
   registerFile('auth/users-inventory.json', authUsersPath)
   console.log(` -> Exported safe auth metadata inventory (${authUsers.length} users)`)
+
+  const authRecoverySql = generateAuthRecoverySql(authUsers)
+  const authRecoverySqlPath = path.join(authDir, 'auth-recovery.sql')
+  fs.writeFileSync(authRecoverySqlPath, authRecoverySql, 'utf8')
+  registerFile('auth/auth-recovery.sql', authRecoverySqlPath)
+  console.log(` -> Generated auth/auth-recovery.sql for user UUID pre-provisioning`)
 
   // 9. Disaster Recovery Configuration Spec
   const configSpec = {
