@@ -100,6 +100,14 @@ export const GENERATED_ALWAYS_COLUMNS: Partial<Record<ApplicationTableName, stri
 }
 
 /**
+ * Tables and columns that are native PostgreSQL arrays (e.g. text[]),
+ * rather than JSONB arrays.
+ */
+export const POSTGRES_ARRAY_COLUMNS: Partial<Record<ApplicationTableName, string[]>> = {
+  profiles: ['dietary_preferences'],
+}
+
+/**
  * Computes the SHA-256 hash of a file or buffer.
  */
 export function computeSha256(data: Buffer | string): string {
@@ -152,7 +160,11 @@ export function runRemoteSqlQuery(sql: string): any[] {
 /**
  * Formats a JavaScript value into a valid PostgreSQL SQL literal.
  */
-export function formatSqlValue(val: any): string {
+export function formatSqlValue(
+  val: any,
+  colName?: string,
+  tableName?: ApplicationTableName
+): string {
   if (val === null || val === undefined) {
     return 'NULL'
   }
@@ -161,6 +173,13 @@ export function formatSqlValue(val: any): string {
   }
   if (typeof val === 'number') {
     return String(val)
+  }
+  if (tableName && colName && POSTGRES_ARRAY_COLUMNS[tableName]?.includes(colName)) {
+    if (Array.isArray(val)) {
+      if (val.length === 0) return "'{}'::text[]"
+      const escaped = val.map((item) => `'${String(item).replace(/'/g, "''")}'`).join(', ')
+      return `ARRAY[${escaped}]::text[]`
+    }
   }
   if (Array.isArray(val)) {
     // Array column or JSON array
@@ -199,7 +218,7 @@ export function generateSqlInserts(tableName: ApplicationTableName, rows: any[])
   sql += `INSERT INTO public.${tableName} (${colNames})\nVALUES\n`
 
   const valueRows = rows.map((row) => {
-    const values = columns.map((col) => formatSqlValue(row[col]))
+    const values = columns.map((col) => formatSqlValue(row[col], col, tableName))
     return `  (${values.join(', ')})`
   })
 

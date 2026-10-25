@@ -103,11 +103,18 @@ describe('Aurelia Backup & Disaster Recovery Workflow Suite', () => {
       expect(formatSqlValue("It's a culinary 'delight'")).toBe("'It''s a culinary ''delight'''")
     })
 
-    it('formats arrays and objects as escaped JSONB literals', () => {
+    it('formats arrays and objects as escaped JSONB literals by default', () => {
       expect(formatSqlValue({ key: 'val', note: "chef's" })).toBe(
         `'{"key":"val","note":"chef''s"}'::jsonb`
       )
       expect(formatSqlValue(['Produce', 'Dairy'])).toBe(`'["Produce","Dairy"]'::jsonb`)
+    })
+
+    it('formats PostgreSQL native text[] columns as ARRAY literals', () => {
+      expect(
+        formatSqlValue(['vegetarian', 'gluten-free'], 'dietary_preferences', 'profiles')
+      ).toBe("ARRAY['vegetarian', 'gluten-free']::text[]")
+      expect(formatSqlValue([], 'dietary_preferences', 'profiles')).toBe("'{}'::text[]")
     })
   })
 

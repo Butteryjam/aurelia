@@ -150,11 +150,12 @@ export function encryptBackupDirectory(
   }
 }
 
+import { resolvePassphrase } from './passphrase-utils'
+
 // CLI entry point
 if (require.main === module) {
   const args = process.argv.slice(2)
   const dirIndex = args.indexOf('--dir')
-  const passIndex = args.indexOf('--password')
   const outIndex = args.indexOf('--out')
 
   const targetDir =
@@ -171,21 +172,15 @@ if (require.main === module) {
           return path.join(baseDir, entries[0])
         })()
 
-  const passphrase =
-    (passIndex !== -1 ? args[passIndex + 1] : process.env.AURELIA_BACKUP_PASSPHRASE) || ''
-
   const outputPath = outIndex !== -1 ? args[outIndex + 1] : undefined
 
-  if (!passphrase) {
-    console.error('Error: Please provide a passphrase via --password <passphrase> or AURELIA_BACKUP_PASSPHRASE.')
-    process.exit(1)
-  }
-
-  try {
-    encryptBackupDirectory(targetDir, passphrase, outputPath)
-    process.exit(0)
-  } catch (err: any) {
-    console.error('[ENCRYPTION ERROR]:', err.message || err)
-    process.exit(1)
-  }
+  resolvePassphrase(args, 'Enter backup passphrase to encrypt: ')
+    .then((passphrase) => {
+      encryptBackupDirectory(targetDir, passphrase, outputPath)
+      process.exit(0)
+    })
+    .catch((err: any) => {
+      console.error('[ENCRYPTION ERROR]:', err.message || err)
+      process.exit(1)
+    })
 }

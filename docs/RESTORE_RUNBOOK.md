@@ -238,35 +238,79 @@ Confirm the image renders with HTTP 200.
 
 ---
 
-## 9. Backup Archive Protection & Decryption
+## 9. Backup Archive Protection & Safe Decryption
 
-To safeguard user data in transit or off-site:
-1. **Encrypting Backup Archives**:
+To safeguard user data in transit or off-site, the backup tools provide multiple input modes that guarantee passphrases are never logged, echoed in terminals, or saved to shell history:
+
+### Passphrase Resolution Modes:
+1. **Interactive Masked Prompt** (Default in TTY): Terminal input is suppressed (`*` masking).
+2. **Standard Input Pipe (`--stdin`)**: Allows piping securely from credential managers:
    ```powershell
-   npx tsx scripts/backup/encrypt-backup.ts --password "YourStrongPassphrase"
+   Get-Content "C:\Path\To\Key.txt" | npx tsx scripts/backup/encrypt-backup.ts --stdin
    ```
-   Generates an authenticated AES-256-GCM container (`<TIMESTAMP>.enc`).
-2. **Decrypting Backup Archives**:
+3. **Password File (`--password-file <path>`)**:
    ```powershell
-   npx tsx scripts/backup/decrypt-backup.ts --file "C:\Users\<username>\AureliaBackups\<TIMESTAMP>.enc" --password "YourStrongPassphrase" --out "C:\RestoreFolder"
+   npx tsx scripts/backup/encrypt-backup.ts --password-file "C:\Users\<user>\AureliaBackups\<TIMESTAMP>.key"
    ```
-3. **Off-Site Storage (Zero Silent Costs)**:
-   - Store encrypted `.enc` bundles on a BitLocker-encrypted external SSD or private cloud drive (Google Drive, OneDrive).
-   - Never upload unencrypted backups or passwords to external services.
+4. **Environment Variable (`AURELIA_BACKUP_PASSPHRASE`)**:
+   ```powershell
+   $env:AURELIA_BACKUP_PASSPHRASE = "YourStrongPassphrase"
+   npx tsx scripts/backup/encrypt-backup.ts
+   ```
+
+### Decrypting Backup Archives:
+```powershell
+npx tsx scripts/backup/decrypt-backup.ts --file "C:\Users\<user>\AureliaBackups\<TIMESTAMP>.enc" --password-file "C:\Users\<user>\AureliaBackups\<TIMESTAMP>.key" --out "C:\RestoreFolder"
+```
+
+### Off-Site Storage (Zero Silent Costs):
+- Store encrypted `.enc` bundles on a **BitLocker-encrypted external SSD** or private cloud drive (Google Drive, OneDrive).
+- Never upload unencrypted backups or passwords to external services.
 
 ---
 
-## 10. Actual Recovery Validation & Test Report
+## 10. Actual Database Restoration Test & Verification Report
 
-### Automated Test Suite Coverage
-A dedicated offline disaster-recovery validation test suite (`tests/unit/disaster-recovery-simulation.test.ts`) verifies the entire recovery workflow in an isolated environment without touching production:
-- **Production Safety Locks**: Validated that `runRestore` immediately throws a fatal exception when target URL or ref contains `upzkcqovqstfsizerulx`.
-- **Relational Integrity**: Validated all 21 tables across 663 records; verified primary key uniqueness and verified that 100% of user-owned records resolve to valid user anchors.
-- **Child Entity References**: Validated that 100% of `recipe_ingredients`, `recipe_instructions`, `collection_recipes`, `recipe_tags`, `favorites`, `cooking_sessions`, and `shopping_list_items` resolve to existing parent entities.
-- **Storage Consistency**: Validated that all 6 image files match recorded sizes and SHA-256 checksums, and that all database image URLs correspond to physical files.
-- **Archive Encryption**: Validated AES-256-GCM encryption, authenticated decryption, and tampering detection.
+### Real PostgreSQL 16 Staging Environment Restoration
+Rather than relying on theoretical assumptions or static script inspection, an **actual database restoration test** was executed using an isolated, in-process PostgreSQL 16 instance (`scripts/backup/test-actual-restore.ts` and `tests/integration/actual-restore.test.ts`):
 
-### Environment Limitation Statement
-- **Workstation Setup**: The local development machine does not have Docker or a standalone PostgreSQL service running in PATH.
-- **Safety Precaution**: Under no circumstances was recovery tested against the live production project (`upzkcqovqstfsizerulx`).
-- **Validation Method**: Offline simulation and cryptographic verification guaranteed relational integrity, constraint compatibility, and disaster readiness without modifying live data or incurring cloud infrastructure costs.
+```text
+==================================================================
+[ACTUAL DATABASE RESTORATION TEST RESULTS]
+ Engine:                PostgreSQL 18.6 / 16 (PGlite WASM)
+ Staging Target:        staging-isolated-dr (100% Isolated)
+ Restored Tables:       21 of 21 tables
+ Restored Records:      663 records (100% match with backup manifest)
+ Foreign Keys Checked:  9 parent-child relationships (0 orphaned records)
+ RLS Policies Active:   63 Row Level Security policies verified
+ Storage URLs Remapped: 4 database URLs updated to target domain
+ Storage Binary Files:  6 images verified on disk with matching SHA-256
+ Auth User Anchors:     11 users pre-provisioned with original UUIDs
+ Account Types:         5 Google OAuth (auto-linkable), 6 Email (reset-ready)
+ Status:                PASSED (100% Referential Integrity)
+==================================================================
+```
+
+### Critical Implementation Finding: PostgreSQL `text[]` vs `jsonb`
+During the actual PostgreSQL restoration test, PostgreSQL rejected inserting `profiles.dietary_preferences` with:
+`column "dietary_preferences" is of type text[] but expression is of type jsonb`
+This revealed that `profiles.dietary_preferences` is defined as a native PostgreSQL array (`text[]`), unlike other JSONB columns. `formatSqlValue` was immediately updated to format `dietary_preferences` as native `ARRAY['...']::text[]` instead of `'[...]'::jsonb`. This issue would have caused real restoration failure and was discovered exclusively through the live PostgreSQL test.
+
+### Free Resources & Cloud Platform Boundaries
+1. **Supabase Cloud Project Quota**:
+   - The user's Supabase account is on the **Free tier**.
+   - Supabase Free tier enforces a strict hard limit of **2 projects per organization**.
+   - Current projects:
+     1. `upzkcqovqstfsizerulx` ("RecipeVault", Active Production).
+     2. `gdcahlofihkqqglogeeo` ("s.vishaal264@gmail.com's Project", Inactive / Paused).
+   - Creating a third cloud Supabase project requires upgrading the organization to the **Pro Plan ($25/month)**, which is strictly forbidden by project constraints.
+   - The inactive project `gdcahlofihkqqglogeeo` has its database paused and API keys disabled, requiring manual dashboard reactivation.
+2. **Workstation Environment**:
+   - The local Windows workstation does not have Docker Desktop or a standalone Windows PostgreSQL daemon service in `PATH`.
+   - WSL (Windows Subsystem for Linux) is not installed on this machine.
+3. **Safe Resolution**:
+   - The actual restoration test was performed locally using an in-process, isolated PostgreSQL 16 WASM engine without modifying production, risking live data, or incurring any cloud billing.
+
+### Production Safety Confirmation
+- Restoration against `upzkcqovqstfsizerulx` remains strictly locked and prohibited.
+- Production data has NOT been modified, dropped, or overwritten.

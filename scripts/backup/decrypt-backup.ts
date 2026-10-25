@@ -123,30 +123,34 @@ export function decryptBackupContainer(
   }
 }
 
+import { resolvePassphrase } from './passphrase-utils'
+
 // CLI entry point
 if (require.main === module) {
   const args = process.argv.slice(2)
   const fileIndex = args.indexOf('--file')
-  const passIndex = args.indexOf('--password')
   const outIndex = args.indexOf('--out')
 
-  if (fileIndex === -1 || passIndex === -1) {
-    console.error('Usage: npx tsx scripts/backup/decrypt-backup.ts --file <file.enc> --password <passphrase> [--out <dir>]')
+  if (fileIndex === -1 || !args[fileIndex + 1]) {
+    console.error(
+      'Usage: npx tsx scripts/backup/decrypt-backup.ts --file <file.enc> [--password <passphrase> | --password-file <path> | --stdin] [--out <dir>]'
+    )
     process.exit(1)
   }
 
   const encryptedFile = args[fileIndex + 1]
-  const passphrase = args[passIndex + 1]
   const outputDir =
     outIndex !== -1
       ? args[outIndex + 1]
       : path.join(os.tmpdir(), `aurelia_restore_${Date.now()}`)
 
-  try {
-    decryptBackupContainer(encryptedFile, passphrase, outputDir)
-    process.exit(0)
-  } catch (err: any) {
-    console.error('[DECRYPTION ERROR]:', err.message || err)
-    process.exit(1)
-  }
+  resolvePassphrase(args, 'Enter backup passphrase to decrypt: ')
+    .then((passphrase) => {
+      decryptBackupContainer(encryptedFile, passphrase, outputDir)
+      process.exit(0)
+    })
+    .catch((err: any) => {
+      console.error('[DECRYPTION ERROR]:', err.message || err)
+      process.exit(1)
+    })
 }

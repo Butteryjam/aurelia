@@ -5,6 +5,8 @@ import os from 'os'
 import { encryptBackupDirectory } from '../../scripts/backup/encrypt-backup'
 import { decryptBackupContainer } from '../../scripts/backup/decrypt-backup'
 
+import { resolvePassphrase } from '../../scripts/backup/passphrase-utils'
+
 describe('Aurelia Backup Encryption & Decryption Suite', () => {
   const baseDir = path.join(os.homedir(), 'AureliaBackups')
   const backupFolders = fs
@@ -18,6 +20,22 @@ describe('Aurelia Backup Encryption & Decryption Suite', () => {
   const tempEncPath = path.join(os.tmpdir(), `test_aurelia_${Date.now()}.enc`)
   const tempDecDir = path.join(os.tmpdir(), `test_aurelia_dec_${Date.now()}`)
   const testPassphrase = 'AureliaCulinaryVault2026!SecureKey'
+
+  it('safely resolves passphrase from --password-file without exposing in command line', async () => {
+    const tempKeyFile = path.join(os.tmpdir(), `temp_key_${Date.now()}.txt`)
+    fs.writeFileSync(tempKeyFile, 'SecretKeyFromFile999!\n', 'utf8')
+
+    const resolved = await resolvePassphrase(['--password-file', tempKeyFile])
+    expect(resolved).toBe('SecretKeyFromFile999!')
+    fs.unlinkSync(tempKeyFile)
+  })
+
+  it('safely resolves passphrase from AURELIA_BACKUP_PASSPHRASE environment variable', async () => {
+    process.env.AURELIA_BACKUP_PASSPHRASE = 'EnvSecretPassphrase42!'
+    const resolved = await resolvePassphrase([])
+    expect(resolved).toBe('EnvSecretPassphrase42!')
+    delete process.env.AURELIA_BACKUP_PASSPHRASE
+  })
 
   it('encrypts verified backup directory into AES-256-GCM container', () => {
     const encResult = encryptBackupDirectory(sourceBackup, testPassphrase, tempEncPath)
