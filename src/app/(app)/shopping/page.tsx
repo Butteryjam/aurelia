@@ -5,6 +5,9 @@ import { getShoppingLists, getShoppingListWithItems, getActiveShoppingList } fro
 import { Badge } from '@/components/ui/badge'
 import { ShoppingBag } from 'lucide-react'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export const metadata: Metadata = {
   title: 'Shopping | Aurelia',
   description: 'Your intelligent kitchen provisioning companion, consolidated from your culinary archive and meal plans.',

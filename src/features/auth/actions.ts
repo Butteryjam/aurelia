@@ -61,6 +61,10 @@ export async function login(formData: FormData): Promise<AuthResult> {
     return { error: classifyAuthError(error) }
   }
 
+  // Purge any stale client/server route caches across the entire app layout tree
+  try {
+    revalidatePath('/', 'layout')
+  } catch {}
   redirect('/')
 }
 
@@ -200,6 +204,10 @@ export async function completePasswordRecovery(formData: FormData): Promise<Pass
 export async function logout(): Promise<void> {
   const supabase = await createClient()
   await supabase.auth.signOut()
+  // Invalidate all cached layouts and route segments across the application
+  try {
+    revalidatePath('/', 'layout')
+  } catch {}
   redirect('/login')
 }
 

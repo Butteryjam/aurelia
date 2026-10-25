@@ -19,6 +19,9 @@ export default function SignupPage() {
   async function handleGoogleSignUp() {
     setError(null)
     setGoogleLoading(true)
+    try {
+      sessionStorage.clear()
+    } catch {}
 
     try {
       const supabase = createClient()

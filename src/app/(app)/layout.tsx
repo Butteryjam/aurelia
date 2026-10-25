@@ -4,6 +4,9 @@ import { MobileNav } from '@/components/layout/mobile-nav'
 import { createClient } from '@/lib/supabase/server'
 import { getProfile } from '@/features/auth/queries'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   let userProfile: { displayName?: string | null; email?: string | null; avatarUrl?: string | null } | null = null
 

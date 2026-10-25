@@ -17,6 +17,9 @@ import { RecipeCard } from '@/features/recipes/components/recipe-card'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/shared/empty-state'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export const metadata = {
   title: 'Dashboard | Aurelia',
   description: 'Your personalized culinary dashboard with recent recipes, planned meals, and cooking activity.',

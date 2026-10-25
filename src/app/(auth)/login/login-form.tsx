@@ -26,6 +26,9 @@ export function LoginForm() {
   async function handleGoogleSignIn() {
     setError(null)
     setGoogleLoading(true)
+    try {
+      sessionStorage.clear()
+    } catch {}
 
     try {
       const supabase = createClient()
@@ -61,6 +64,9 @@ export function LoginForm() {
     e.preventDefault()
     setError(null)
     setLoading(true)
+    try {
+      sessionStorage.clear()
+    } catch {}
     const formData = new FormData(e.currentTarget)
     try {
       const result = await login(formData)

@@ -6,6 +6,9 @@ import { SettingsView } from '@/features/auth/components/settings-view'
 import { AlertCircle, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 interface SettingsPageProps {
   searchParams: Promise<{
     mode?: string

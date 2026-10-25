@@ -555,7 +555,14 @@ export function SettingsView({ user, initialProfile, isRecovery = false }: Setti
             </div>
 
             {/* Subordinate Sign Out Button */}
-            <form action={logout}>
+            <form
+              action={logout}
+              onSubmit={() => {
+                try {
+                  sessionStorage.clear()
+                } catch {}
+              }}
+            >
               <Button
                 type="submit"
                 variant="outline"

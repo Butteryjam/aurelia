@@ -209,7 +209,14 @@ export function MobileHeader({ userProfile }: MobileHeaderProps) {
                 <span className="text-xs font-medium text-muted-foreground">Appearance</span>
                 <ThemeToggle />
               </div>
-              <form action={logout}>
+              <form
+                action={logout}
+                onSubmit={() => {
+                  try {
+                    sessionStorage.clear()
+                  } catch {}
+                }}
+              >
                 <button
                   type="submit"
                   className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"

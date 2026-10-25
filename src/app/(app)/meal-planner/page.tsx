@@ -10,6 +10,9 @@ import {
 } from '@/features/meal-planner/queries'
 import { getShoppingLists } from '@/features/shopping/queries'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export const metadata: Metadata = {
   title: 'Meal Planner | Aurelia',
   description:

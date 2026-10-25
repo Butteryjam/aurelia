@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
 
 /**
  * Validate that a redirect target is a safe internal relative path.
@@ -68,6 +69,12 @@ export async function GET(request: Request) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
+      // Purge all stale route and layout caches for the authenticated user
+      try {
+        revalidatePath('/', 'layout')
+      } catch {
+        // Safe fallback in test runtimes without Next.js static store
+      }
       return NextResponse.redirect(safeRedirectUrl)
     }
     console.error('[auth/callback] Code exchange error:', error)
