@@ -348,12 +348,14 @@ export function RecipesView({ recipes, favoriteIds, filterOptions }: RecipesView
       )}
 
       {/* Bulk Delete Confirmation Dialog */}
-      <BulkDeleteDialog
-        open={bulkDeleteDialogOpen}
-        onOpenChange={setBulkDeleteDialogOpen}
-        selectedRecipes={selectedRecipesForDialog}
-        onSuccess={handleBulkDeleteSuccess}
-      />
+      {bulkDeleteDialogOpen && (
+        <BulkDeleteDialog
+          open={bulkDeleteDialogOpen}
+          onOpenChange={setBulkDeleteDialogOpen}
+          selectedRecipes={selectedRecipesForDialog}
+          onSuccess={handleBulkDeleteSuccess}
+        />
+      )}
     </div>
   )
 }

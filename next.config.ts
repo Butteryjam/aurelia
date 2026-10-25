@@ -43,7 +43,12 @@ if (supabaseHost !== 'upzkcqovqstfsizerulx.supabase.co') {
 
 const nextConfig: NextConfig = {
   images: {
+    formats: ['image/avif', 'image/webp'],
+    minimumCacheTTL: 2592000,
     remotePatterns,
+  },
+  experimental: {
+    optimizePackageImports: ['lucide-react'],
   },
   async redirects() {
     return [

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import Link from 'next/link'
 import { Clock, ChefHat, Check, MoreVertical, Trash2 } from 'lucide-react'
 import type { Recipe } from '@/types/database'
@@ -27,7 +27,7 @@ interface RecipeCardProps {
   onDeleteSuccess?: (recipeId: string) => void
 }
 
-export function RecipeCard({
+export const RecipeCard = React.memo(function RecipeCard({
   recipe,
   isFavorite = false,
   className,
@@ -228,14 +228,16 @@ export function RecipeCard({
       </div>
 
       {/* Contextual Delete Dialog from Card */}
-      <DeleteRecipeDialog
-        recipeId={recipe.id}
-        recipeTitle={recipe.title}
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-        redirectTo={null}
-        onSuccess={() => onDeleteSuccess?.(recipe.id)}
-      />
+      {deleteDialogOpen && (
+        <DeleteRecipeDialog
+          recipeId={recipe.id}
+          recipeTitle={recipe.title}
+          open={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          redirectTo={null}
+          onSuccess={() => onDeleteSuccess?.(recipe.id)}
+        />
+      )}
     </article>
   )
-}
+})
