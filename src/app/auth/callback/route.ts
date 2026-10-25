@@ -41,14 +41,41 @@ export async function GET(request: Request) {
   const rawNext = searchParams.get('next')
   const safeRedirectUrl = getSafeRedirectUrl(rawNext, origin)
 
+  // 1. Handle provider-level OAuth errors and user cancellations
+  const errorParam = searchParams.get('error')
+  const errorDescription = searchParams.get('error_description')
+
+  if (errorParam) {
+    console.error('[auth/callback] OAuth provider error:', {
+      error: errorParam,
+      description: errorDescription,
+    })
+
+    const isCancelled =
+      errorParam === 'access_denied' ||
+      errorDescription?.toLowerCase().includes('cancel') ||
+      errorDescription?.toLowerCase().includes('closed')
+
+    const message = isCancelled
+      ? 'Google sign-in was cancelled.'
+      : errorDescription || 'Could not complete Google sign-in. Please try again.'
+
+    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(message)}`)
+  }
+
+  // 2. Exchange authorization code for authenticated session
   if (code) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
       return NextResponse.redirect(safeRedirectUrl)
     }
+    console.error('[auth/callback] Code exchange error:', error)
   }
 
-  // Redirect to login with error if code exchange fails
-  return NextResponse.redirect(`${origin}/login?message=Could not authenticate. Please try again.`)
+  // 3. Fallback if code is missing or exchange fails
+  return NextResponse.redirect(
+    `${origin}/login?error=${encodeURIComponent('Could not authenticate. Please try again.')}`
+  )
 }
+

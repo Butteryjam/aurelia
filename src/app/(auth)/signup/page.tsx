@@ -3,15 +3,51 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { signup } from '@/features/auth/actions'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Mail, Lock, Eye, EyeOff, User, AlertCircle, Loader2 } from 'lucide-react'
+import { GoogleIcon } from '@/components/icons/google-icon'
 
 export default function SignupPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+
+  async function handleGoogleSignUp() {
+    setError(null)
+    setGoogleLoading(true)
+
+    try {
+      const supabase = createClient()
+      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      const callbackUrl = `${origin}/auth/callback`
+
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: callbackUrl,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'select_account',
+          },
+        },
+      })
+
+      if (oauthError) {
+        setError(oauthError.message || 'Could not initiate Google sign-in.')
+        setGoogleLoading(false)
+      } else if (data?.url) {
+        window.location.href = data.url
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to start Google sign-in.'
+      setError(errMsg)
+      setGoogleLoading(false)
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -29,6 +65,8 @@ export default function SignupPage() {
       setLoading(false)
     }
   }
+
+  const isSubmitting = loading || googleLoading
 
   return (
     <div className="space-y-8">
@@ -54,6 +92,42 @@ export default function SignupPage() {
         </div>
       )}
 
+      {/* Primary OAuth: Continue with Google */}
+      <div className="space-y-4">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleGoogleSignUp}
+          disabled={isSubmitting}
+          className="w-full h-11 rounded-xl border border-border/80 hover:bg-muted/40 font-medium transition-colors flex items-center justify-center gap-3 shadow-xs"
+          aria-label="Continue with Google"
+        >
+          {googleLoading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <span>Connecting to Google…</span>
+            </>
+          ) : (
+            <>
+              <GoogleIcon className="h-4 w-4 shrink-0" />
+              <span>Continue with Google</span>
+            </>
+          )}
+        </Button>
+
+        {/* Visual Divider */}
+        <div className="relative my-2">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-3 text-muted-foreground font-sans">
+              Or continue with email
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Form */}
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="space-y-2">
@@ -68,6 +142,7 @@ export default function SignupPage() {
               required
               autoComplete="name"
               autoFocus
+              disabled={isSubmitting}
               className="pl-10 h-11"
             />
           </div>
@@ -84,6 +159,7 @@ export default function SignupPage() {
               placeholder="you@example.com"
               required
               autoComplete="email"
+              disabled={isSubmitting}
               className="pl-10 h-11"
             />
           </div>
@@ -100,11 +176,13 @@ export default function SignupPage() {
               placeholder="••••••••"
               required
               autoComplete="new-password"
+              disabled={isSubmitting}
               className="pl-10 pr-10 h-11"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
+              disabled={isSubmitting}
               className="absolute right-3 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground/60 hover:text-muted-foreground transition-colors"
               aria-label={showPassword ? 'Hide password' : 'Show password'}
               tabIndex={-1}
@@ -117,7 +195,7 @@ export default function SignupPage() {
           </p>
         </div>
 
-        <Button type="submit" className="w-full h-11" disabled={loading}>
+        <Button type="submit" className="w-full h-11" disabled={isSubmitting}>
           {loading ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -128,13 +206,6 @@ export default function SignupPage() {
           )}
         </Button>
       </form>
-
-      {/* Divider */}
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t border-border" />
-        </div>
-      </div>
 
       {/* Footer */}
       <p className="text-center text-sm text-muted-foreground">
