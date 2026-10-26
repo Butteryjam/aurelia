@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { FolderPlus, Check, Loader2, Plus } from 'lucide-react'
+import dynamic from 'next/dynamic'
 import {
   Dialog,
   DialogContent,
@@ -11,14 +12,18 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { createClient } from '@/lib/supabase/client'
 import {
   addRecipeToCollection,
   removeRecipeFromCollection,
   getRecipeCollectionIds,
+  getUserCollectionsAction,
 } from '@/features/collections/actions'
-import { CollectionDialog } from './collection-dialog'
 import type { Collection } from '@/types/database'
+
+const CollectionDialog = dynamic(
+  () => import('./collection-dialog').then((m) => m.CollectionDialog),
+  { ssr: false }
+)
 
 interface AddToCollectionDialogProps {
   recipeId: string
@@ -46,20 +51,15 @@ export function AddToCollectionDialog({ recipeId, trigger }: AddToCollectionDial
 
     async function loadData() {
       try {
-        const supabase = createClient()
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
-
-        if (!user) return
-
         const [colsRes, activeIds] = await Promise.all([
-          supabase.from('collections').select('*').eq('user_id', user.id).order('name'),
+          getUserCollectionsAction(),
           getRecipeCollectionIds(recipeId),
         ])
 
         if (isMounted) {
-          setCollections(colsRes.data ?? [])
+          if (colsRes.data) {
+            setCollections(colsRes.data)
+          }
           setSelectedIds(activeIds)
         }
       } catch (e) {
@@ -80,15 +80,30 @@ export function AddToCollectionDialog({ recipeId, trigger }: AddToCollectionDial
     setPendingIds((prev) => ({ ...prev, [collectionId]: true }))
 
     // Optimistic toggle
-    if (isCurrentlySelected) {
-      setSelectedIds((prev) => prev.filter((id) => id !== collectionId))
-      await removeRecipeFromCollection(collectionId, recipeId)
-    } else {
-      setSelectedIds((prev) => [...prev, collectionId])
-      await addRecipeToCollection(collectionId, recipeId)
+    try {
+      if (isCurrentlySelected) {
+        setSelectedIds((prev) => prev.filter((id) => id !== collectionId))
+        await removeRecipeFromCollection(collectionId, recipeId)
+      } else {
+        setSelectedIds((prev) => [...prev, collectionId])
+        await addRecipeToCollection(collectionId, recipeId)
+      }
+    } finally {
+      setPendingIds((prev) => ({ ...prev, [collectionId]: false }))
     }
+  }
 
-    setPendingIds((prev) => ({ ...prev, [collectionId]: false }))
+  async function handleCollectionCreated(newId: string) {
+    try {
+      await addRecipeToCollection(newId, recipeId)
+      const colsRes = await getUserCollectionsAction()
+      if (colsRes.data) {
+        setCollections(colsRes.data)
+      }
+      setSelectedIds((prev) => [...prev, newId])
+    } catch (e) {
+      console.error('Failed to link new collection:', e)
+    }
   }
 
   return (
@@ -123,9 +138,7 @@ export function AddToCollectionDialog({ recipeId, trigger }: AddToCollectionDial
               <p className="text-xs text-muted-foreground">You haven&apos;t created any collections yet.</p>
               <CollectionDialog
                 mode="create"
-                onSuccess={(newId) => {
-                  setSelectedIds((prev) => [...prev, newId])
-                }}
+                onSuccess={handleCollectionCreated}
                 trigger={
                   <Button size="sm" variant="default" className="gap-1.5 text-xs">
                     <Plus className="h-3.5 w-3.5" />
@@ -181,9 +194,7 @@ export function AddToCollectionDialog({ recipeId, trigger }: AddToCollectionDial
           <div className="pt-2 border-t border-border flex items-center justify-between">
             <CollectionDialog
               mode="create"
-              onSuccess={(newId) => {
-                setSelectedIds((prev) => [...prev, newId])
-              }}
+              onSuccess={handleCollectionCreated}
               trigger={
                 <Button variant="ghost" size="sm" className="gap-1 text-xs text-primary">
                   <Plus className="h-3.5 w-3.5" />

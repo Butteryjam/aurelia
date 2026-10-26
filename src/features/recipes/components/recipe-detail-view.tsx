@@ -16,6 +16,7 @@ import {
   UtensilsCrossed,
   FolderPlus,
   Trash2,
+  Sparkles,
 } from 'lucide-react'
 import type { RecipeWithDetails, NutritionFacts } from '@/types/database'
 import { Button } from '@/components/ui/button'
@@ -25,14 +26,41 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { ActionToolbar } from '@/components/shared/action-toolbar'
+import dynamic from 'next/dynamic'
 import { FavoriteButton } from './favorite-button'
 import { ServingSelector } from './serving-selector'
-import { DeleteRecipeDialog } from './delete-recipe-dialog'
-import { AddToCollectionDialog } from '@/features/collections/components/add-to-collection-dialog'
 import { AddToMealPlanButton } from '@/features/meal-planner/components/add-to-meal-plan-button'
-import { RecipeAiActionsModal } from '@/features/ai/components/recipe-ai-actions-modal'
 import { scaleQuantity } from '@/lib/utils/quantity-scaler'
 import { cn } from '@/lib/utils'
+
+const DeleteRecipeDialog = dynamic(
+  () => import('./delete-recipe-dialog').then((m) => m.DeleteRecipeDialog),
+  { ssr: false }
+)
+const RecipeAiActionsModal = dynamic(
+  () => import('@/features/ai/components/recipe-ai-actions-modal').then((m) => m.RecipeAiActionsModal),
+  {
+    ssr: false,
+    loading: () => (
+      <Button variant="outline" size="sm" className="h-8.5 gap-1.5 text-xs opacity-70">
+        <Sparkles className="h-3.5 w-3.5 text-primary" />
+        <span>AI Chef Actions</span>
+      </Button>
+    ),
+  }
+)
+const AddToCollectionDialog = dynamic(
+  () => import('@/features/collections/components/add-to-collection-dialog').then((m) => m.AddToCollectionDialog),
+  {
+    ssr: false,
+    loading: () => (
+      <Button variant="outline" size="sm" className="h-8.5 gap-1.5 text-xs opacity-70">
+        <FolderPlus className="h-3.5 w-3.5" />
+        <span>Add to Collection</span>
+      </Button>
+    ),
+  }
+)
 
 interface RecipeDetailViewProps {
   recipe: RecipeWithDetails & { is_owner: boolean }
@@ -202,7 +230,7 @@ export function RecipeDetailView({ recipe }: RecipeDetailViewProps) {
             </>
           }
         />
-        {recipe.is_owner && (
+        {recipe.is_owner && deleteDialogOpen && (
           <DeleteRecipeDialog
             recipeId={recipe.id}
             recipeTitle={recipe.title}

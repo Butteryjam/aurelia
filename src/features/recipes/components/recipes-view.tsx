@@ -23,9 +23,14 @@ import { RecipeCard } from './recipe-card'
 import { RecipeSearchBar } from './recipe-search-bar'
 import { RecipeSortSelect } from './recipe-sort-select'
 import { RecipeFiltersSheet } from './recipe-filters-sheet'
-import { BulkDeleteDialog } from './bulk-delete-dialog'
+import dynamic from 'next/dynamic'
 import { useRecipeFilters } from '@/features/recipes/hooks/use-recipe-filters'
 import { cn } from '@/lib/utils'
+
+const BulkDeleteDialog = dynamic(
+  () => import('./bulk-delete-dialog').then((m) => m.BulkDeleteDialog),
+  { ssr: false }
+)
 
 interface RecipesViewProps {
   recipes: Recipe[]

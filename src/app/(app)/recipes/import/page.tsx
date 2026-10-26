@@ -4,10 +4,21 @@ import { Suspense, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { ArrowLeft, ShieldCheck } from 'lucide-react'
+import dynamic from 'next/dynamic'
 import { PageHeader } from '@/components/shared/page-header'
 import { RecipeImporter } from '@/features/ai/components/recipe-importer'
-import { RecipeAiPreview } from '@/features/ai/components/recipe-ai-preview'
 import type { ExtractedRecipeData } from '@/features/ai/types'
+
+const RecipeAiPreview = dynamic(
+  () => import('@/features/ai/components/recipe-ai-preview').then((m) => m.RecipeAiPreview),
+  {
+    loading: () => (
+      <div className="flex items-center justify-center py-16 text-xs text-muted-foreground">
+        Loading recipe preview…
+      </div>
+    ),
+  }
+)
 
 const DEMO_EXTRACTED_RECIPE: ExtractedRecipeData = {
   title: "Grandma's Rustic Tuscan White Bean Soup",

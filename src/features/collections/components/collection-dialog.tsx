@@ -12,13 +12,25 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { ImageUpload } from '@/components/shared/image-upload'
 import { createCollection, updateCollection } from '@/features/collections/actions'
 import type { Collection } from '@/types/database'
+
+const ImageUpload = dynamic(
+  () => import('@/components/shared/image-upload').then((m) => m.ImageUpload),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-28 rounded-xl border border-dashed border-border/70 bg-muted/20 flex items-center justify-center text-xs text-muted-foreground">
+        Loading image uploader…
+      </div>
+    ),
+  }
+)
 
 interface CollectionDialogProps {
   collection?: Collection

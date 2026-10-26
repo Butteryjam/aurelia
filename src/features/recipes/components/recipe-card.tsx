@@ -6,8 +6,8 @@ import { Clock, ChefHat, Check, MoreVertical, Trash2 } from 'lucide-react'
 import type { Recipe } from '@/types/database'
 import { Badge } from '@/components/ui/badge'
 import { FavoriteButton } from './favorite-button'
+import dynamic from 'next/dynamic'
 import { SafeImage } from '@/components/shared/safe-image'
-import { DeleteRecipeDialog } from './delete-recipe-dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +15,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+
+const DeleteRecipeDialog = dynamic(
+  () => import('./delete-recipe-dialog').then((m) => m.DeleteRecipeDialog),
+  { ssr: false }
+)
 
 interface RecipeCardProps {
   recipe: Recipe

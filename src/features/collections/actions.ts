@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import type { UpdateDto } from '@/types/database'
+import type { UpdateDto, Collection } from '@/types/database'
 import {
   createCollectionSchema,
   updateCollectionSchema,
@@ -232,4 +232,29 @@ export async function getRecipeCollectionIds(recipeId: string): Promise<string[]
     .in('collection_id', colIds)
 
   return data?.map((d) => d.collection_id) ?? []
+}
+
+/**
+ * Fetch list of collections for the current user (used by dialogs).
+ */
+export async function getUserCollectionsAction(): Promise<ActionResult<Collection[]>> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { error: 'Not authenticated' }
+
+  const { data, error } = await supabase
+    .from('collections')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('name')
+
+  if (error) {
+    console.error('Failed to fetch user collections:', error)
+    return { error: 'Could not load collections.' }
+  }
+
+  return { data: data ?? [] }
 }
