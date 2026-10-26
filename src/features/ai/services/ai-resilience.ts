@@ -21,9 +21,32 @@ export const PRIMARY_TIMEOUT_MS = 24000
 export const FALLBACK_TIMEOUT_MS = 20000
 
 /**
- * Minimum remaining budget required to start an attempt.
+ * Maximum timeout for recipe extraction primary model attempt.
+ * Recipe extraction generates 800-1200 tokens of strict, detailed JSON.
+ * gemini-3.5-flash-lite requires 16-25 seconds under real-world load.
+ * 26,000ms gives ample headroom while leaving 22,000ms for fallback models.
  */
-export const MIN_REMAINING_BUDGET_MS = 5000
+export const EXTRACTION_PRIMARY_TIMEOUT_MS = 26000
+
+/**
+ * Maximum timeout for recipe extraction fallback model attempts.
+ * 12,000ms ensures gemini-3.5-flash (which completes in 3-8s) has plenty of time,
+ * while leaving at least 10,000ms for OpenRouter free fallback if both primary and secondary fail.
+ */
+export const EXTRACTION_FALLBACK_TIMEOUT_MS = 12000
+
+/**
+ * Minimum remaining budget required to start an attempt or cross-provider failover.
+ * Guarantees that late fallbacks (including OpenRouter) have sufficient time to execute.
+ */
+export const MIN_REMAINING_BUDGET_MS = 6000
+
+/**
+ * Minimum viable attempt timeout. Any request given less than 5000ms
+ * will almost certainly time out during network handshake + token generation,
+ * while wastefully consuming remaining deadline budget and starving subsequent models.
+ */
+export const MIN_VIABLE_ATTEMPT_TIMEOUT_MS = 5000
 
 /**
  * Verified stable fallback model. Limited to primary + gemini-3.5-flash
@@ -308,10 +331,14 @@ export function resolveExtractionCandidateModels(
   if (provider === 'gemini') {
     const configuredExtractionModel = process.env.GEMINI_EXTRACTION_MODEL?.trim()
     const primary = configuredExtractionModel || primaryModel
+    // Always prefer the measured high-throughput model (gemini-3.5-flash) as the primary fallback.
+    // The rate-limited gemini-3.6-flash (20 req/day limit) is placed last so fast models run first.
     const fallbacks =
       primary === 'gemini-3.5-flash-lite'
-        ? ['gemini-3.6-flash', 'gemini-3.5-flash']
-        : ['gemini-3.5-flash-lite', 'gemini-3.5-flash']
+        ? ['gemini-3.5-flash', 'gemini-3.6-flash']
+        : primary === 'gemini-3.6-flash'
+        ? ['gemini-3.5-flash', 'gemini-3.5-flash-lite']
+        : ['gemini-3.5-flash-lite', 'gemini-3.6-flash']
     return Array.from(new Set([primary, ...fallbacks]))
   }
   return [primaryModel]
@@ -319,10 +346,18 @@ export function resolveExtractionCandidateModels(
 
 /**
  * Calculate attempt timeout and check remaining overall budget.
+ * Supports reserving minimum budget for subsequent candidate attempts
+ * so an intermediate attempt never starves subsequent fallback models.
  */
 export function calculateAttemptBudget(
   attemptIndex: number,
-  aiDeadline: number
+  aiDeadline: number,
+  options?: {
+    primaryTimeoutMs?: number
+    fallbackTimeoutMs?: number
+    hasSubsequentCandidates?: boolean
+    minViableTimeoutMs?: number
+  }
 ): { attemptTimeoutMs: number; canAttempt: boolean; remainingBudget: number } {
   const remainingBudget = aiDeadline - Date.now()
   if (remainingBudget < MIN_REMAINING_BUDGET_MS) {
@@ -330,8 +365,38 @@ export function calculateAttemptBudget(
   }
 
   const isPrimary = attemptIndex === 0
-  const targetTimeout = isPrimary ? PRIMARY_TIMEOUT_MS : FALLBACK_TIMEOUT_MS
-  const attemptTimeoutMs = Math.min(targetTimeout, remainingBudget)
+  const primaryTimeout = options?.primaryTimeoutMs ?? PRIMARY_TIMEOUT_MS
+  const fallbackTimeout = options?.fallbackTimeoutMs ?? FALLBACK_TIMEOUT_MS
+  const maxTimeout = isPrimary ? primaryTimeout : fallbackTimeout
+  const minViableTimeout = options?.minViableTimeoutMs ?? MIN_VIABLE_ATTEMPT_TIMEOUT_MS
 
+  // If subsequent candidates exist, strictly reserve at least MIN_REMAINING_BUDGET_MS
+  const reserveForNext = options?.hasSubsequentCandidates ? MIN_REMAINING_BUDGET_MS : 0
+  const usableBudget = remainingBudget - reserveForNext
+
+  // If remaining usable budget cannot provide a viable attempt, halt this candidate
+  // to protect the reserved budget for subsequent candidates (e.g. OpenRouter).
+  if (usableBudget < minViableTimeout) {
+    return { attemptTimeoutMs: 0, canAttempt: false, remainingBudget }
+  }
+
+  const attemptTimeoutMs = Math.min(maxTimeout, usableBudget)
   return { attemptTimeoutMs, canAttempt: true, remainingBudget }
+}
+
+/**
+ * Specialized attempt budget calculation for Recipe Extraction.
+ * Uses EXTRACTION_PRIMARY_TIMEOUT_MS (26s) and EXTRACTION_FALLBACK_TIMEOUT_MS (12s).
+ */
+export function calculateExtractionAttemptBudget(
+  attemptIndex: number,
+  aiDeadline: number,
+  hasSubsequentCandidates: boolean = false
+): { attemptTimeoutMs: number; canAttempt: boolean; remainingBudget: number } {
+  return calculateAttemptBudget(attemptIndex, aiDeadline, {
+    primaryTimeoutMs: EXTRACTION_PRIMARY_TIMEOUT_MS,
+    fallbackTimeoutMs: EXTRACTION_FALLBACK_TIMEOUT_MS,
+    hasSubsequentCandidates,
+    minViableTimeoutMs: MIN_VIABLE_ATTEMPT_TIMEOUT_MS,
+  })
 }

@@ -11,13 +11,13 @@ import {
 import { extractedRecipeSchema } from '../schemas/recipe-extraction'
 import {
   TOTAL_AI_BUDGET_MS,
-  PRIMARY_TIMEOUT_MS,
-  FALLBACK_TIMEOUT_MS,
+  EXTRACTION_FALLBACK_TIMEOUT_MS,
   MIN_REMAINING_BUDGET_MS,
   isTransientOrTimeoutError,
   isQuotaExhaustedError,
   detectQuotaScope,
   resolveExtractionCandidateModels,
+  calculateExtractionAttemptBudget,
 } from './ai-resilience'
 import { parseManualItem } from '@/lib/utils/shopping-consolidator'
 import type { ExtractedRecipeData } from '../types'
@@ -408,18 +408,19 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
 
     for (let i = 0; i < candidateModels.length; i++) {
       const currentModel = candidateModels[i]
-      const remainingBudget = aiDeadline - Date.now()
+      const isLastModel = i === candidateModels.length - 1
+      const openRouterConfig = getOpenRouterConfig()
+      const hasSubsequentCandidates = !isLastModel || !!openRouterConfig
 
-      if (remainingBudget < MIN_REMAINING_BUDGET_MS) {
+      const budget = calculateExtractionAttemptBudget(i, aiDeadline, hasSubsequentCandidates)
+      if (!budget.canAttempt) {
         console.warn(
-          `[Extraction] Overall AI budget exhausted (${remainingBudget}ms remaining). Halting candidate failover.`
+          `[Extraction] Overall AI budget exhausted (${budget.remainingBudget}ms remaining). Halting candidate failover.`
         )
         break
       }
 
-      const isPrimary = i === 0
-      const targetTimeout = isPrimary ? PRIMARY_TIMEOUT_MS : FALLBACK_TIMEOUT_MS
-      const attemptTimeoutMs = Math.min(targetTimeout, remainingBudget)
+      const attemptTimeoutMs = budget.attemptTimeoutMs
 
       try {
         response = await ai.client.chat.completions.create(
@@ -431,6 +432,7 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
             ],
             response_format: { type: 'json_object' },
             temperature: 0.1,
+            max_tokens: 3000,
           },
           {
             timeout: attemptTimeoutMs,
@@ -513,7 +515,7 @@ export async function extractRecipeFromText(rawText: string): Promise<Extraction
           console.warn(
             `[Extraction] Primary AI extraction failed with retryable error. Attempting OpenRouter free fallback with model: ${openRouter.model}...`
           )
-          const openRouterTimeout = Math.min(FALLBACK_TIMEOUT_MS, remainingBudget)
+          const openRouterTimeout = Math.min(EXTRACTION_FALLBACK_TIMEOUT_MS, remainingBudget)
           try {
             response = await openRouter.client.chat.completions.create(
               {
@@ -628,18 +630,19 @@ export async function extractRecipeFromImage(
 
     for (let i = 0; i < candidateModels.length; i++) {
       const currentModel = candidateModels[i]
-      const remainingBudget = aiDeadline - Date.now()
+      const isLastModel = i === candidateModels.length - 1
+      const openRouterConfig = getOpenRouterConfig()
+      const hasSubsequentCandidates = !isLastModel || !!openRouterConfig
 
-      if (remainingBudget < MIN_REMAINING_BUDGET_MS) {
+      const budget = calculateExtractionAttemptBudget(i, aiDeadline, hasSubsequentCandidates)
+      if (!budget.canAttempt) {
         console.warn(
-          `[Image Extraction] Overall AI budget exhausted (${remainingBudget}ms remaining). Halting candidate failover.`
+          `[Image Extraction] Overall AI budget exhausted (${budget.remainingBudget}ms remaining). Halting candidate failover.`
         )
         break
       }
 
-      const isPrimary = i === 0
-      const targetTimeout = isPrimary ? PRIMARY_TIMEOUT_MS : FALLBACK_TIMEOUT_MS
-      const attemptTimeoutMs = Math.min(targetTimeout, remainingBudget)
+      const attemptTimeoutMs = budget.attemptTimeoutMs
 
       try {
         response = await ai.client.chat.completions.create(
@@ -663,6 +666,7 @@ export async function extractRecipeFromImage(
             ],
             response_format: { type: 'json_object' },
             temperature: 0.1,
+            max_tokens: 3000,
           },
           {
             timeout: attemptTimeoutMs,
@@ -745,7 +749,7 @@ export async function extractRecipeFromImage(
           console.warn(
             `[Image Extraction] Primary AI extraction failed with retryable error. Attempting OpenRouter free fallback with model: ${openRouter.model}...`
           )
-          const openRouterTimeout = Math.min(FALLBACK_TIMEOUT_MS, remainingBudget)
+          const openRouterTimeout = Math.min(EXTRACTION_FALLBACK_TIMEOUT_MS, remainingBudget)
           try {
             response = await openRouter.client.chat.completions.create(
               {
